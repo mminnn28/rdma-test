@@ -3,9 +3,16 @@
 #include <string.h>
 #include <infiniband/verbs.h>
 
-// Similar setup code as the server...
+#define PORT_NUM 1
+#define BUFFER_SIZE 4096
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <server_ip>\n", argv[0]);
+        return 1;
+    }
+
+    char *server_ip = argv[1];
     struct ibv_device **dev_list;
     struct ibv_device *ib_dev;
     struct ibv_context *context;
@@ -32,8 +39,8 @@ int main() {
     pd = ibv_alloc_pd(context);
 
     // Allocate memory and register it
-    buf = malloc(4096);
-    mr = ibv_reg_mr(pd, buf, 4096, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+    buf = malloc(BUFFER_SIZE);
+    mr = ibv_reg_mr(pd, buf, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
 
     // Create Completion Queue
     comp_chan = ibv_create_comp_channel(context);
@@ -64,7 +71,18 @@ int main() {
                   IBV_QP_STATE | IBV_QP_PKEY_INDEX |
                   IBV_QP_PORT | IBV_QP_ACCESS_FLAGS);
 
-    // More code to establish connection and perform RDMA operations...
+    // Set QP to RTR (Ready to Receive)
+    qp_attr.qp_state = IBV_QPS_RTR;
+    ibv_modify_qp(qp, &qp_attr,
+                  IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU |
+                  IBV_QP_DEST_QPN | IBV_QP_RQ_PSN |
+                  IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER);
+
+    // Set QP to RTS (Ready to Send)
+    qp_attr.qp_state = IBV_QPS_RTS;
+    ibv_modify_qp(qp, &qp_attr,
+                  IBV_QP_STATE | IBV_QP_SQ_PSN |
+                  IBV_QP_MAX_QP_RD_ATOMIC | IBV_QP_SQ_PSN);
 
     // Clean up
     ibv_destroy_qp(qp);
@@ -76,3 +94,4 @@ int main() {
 
     return 0;
 }
+
