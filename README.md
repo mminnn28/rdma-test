@@ -1,19 +1,24 @@
 # test
-
-- install package
+RDMA test code
+## Source Code
 ```bash
-sudo apt-get update
-sudo apt-get install rdma-core ibverbs-utils perftest
+git clone https://github.com/rlawjd10/test.git
 ```
-- mellanox NIC Firmware update
+## Environment Setup
+1. install package
+```bash
+sudo su
+chsh -s /bin/bash
+apt-get update
+apt-get install rdma-core ibverbs-utils perftest
 ```
-wget http://www.mellanox.com/downloads/ofed/MLNX_OFED-<version>/MLNX_OFED_LINUX-<version>-<platform>.tgz
-tar -xzvf MLNX_OFED_LINUX-<version>-<platform>.tgz
-cd MLNX_OFED_LINUX-<version>-<platform>
-sudo ./mlnxofedinstall --add-kernel-support
-sudo /etc/init.d/openibd start
+2. mellanox NIC Firmware update
 ```
-- test
+# It doesn't matter to see "Failed to update Firmware"
+# This takes about 8 minutes
+sh ./script/installMLNX.sh
+```
+3. checking
 ```
 ibv_devinfo
 
