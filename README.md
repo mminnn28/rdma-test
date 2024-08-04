@@ -13,9 +13,8 @@ apt-get update
 apt-get install rdma-core ibverbs-utils perftest
 ```
 2. mellanox NIC Firmware update
+</br> note : It doesn't matter to see "Failed to update Firmware". This takes about 8 minutes
 ```
-# It doesn't matter to see "Failed to update Firmware"
-# This takes about 8 minutes
 sh ./script/installMLNX.sh
 ```
 3. checking
