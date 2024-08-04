@@ -1,5 +1,8 @@
 #!/bin/bash
 
+apt-get update -y
+apt-get install rdma-core ibverbs-utils perftest
+
 if [ ! -d "tmp" ]; then
 	mkdir tmp
 fi
