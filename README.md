@@ -23,6 +23,11 @@ sh ./script/installMLNX2.sh
 3. checking
 ```
 ibv_devinfo
+ibv_devices
+rdma link
+ibstat
+ip addr show
+
 
 # server
 ib_write_bw
