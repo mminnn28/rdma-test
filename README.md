@@ -1,14 +1,16 @@
 # test
 RDMA test code
+
+### cluster [cloudlab](https://docs.cloudlab.us/hardware.html#%28part._apt-cluster%29)
+
+
+- (r320) Mellanox MX354A Dual port FDR CX3 adapter (Apt cluster)
+- (d6515) Dual-port Mellanox ConnectX-5 100 GB NIC (PCIe v4.0)
+
 ## Source Code
 ```bash
 git clone https://github.com/rlawjd10/test.git
 ```
-### cluster
-[cloudlab](https://docs.cloudlab.us/hardware.html#%28part._apt-cluster%29)
-</br>
-- (r320) Mellanox MX354A Dual port FDR CX3 adapter (Apt cluster)
-- (d6515) Dual-port Mellanox ConnectX-5 100 GB NIC (PCIe v4.0)
 ## Environment Setup
 1. Set bash as the default shell
 ```bash
