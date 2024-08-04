@@ -17,6 +17,9 @@ apt-get install rdma-core ibverbs-utils perftest
 ```
 sh ./script/installMLNX.sh
 ```
+```
+sh ./script/installMLNX2.sh
+```
 3. checking
 ```
 ibv_devinfo
