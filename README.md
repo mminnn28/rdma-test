@@ -3,8 +3,6 @@ RDMA test code
 
 ### cluster [cloudlab](https://docs.cloudlab.us/hardware.html#%28part._apt-cluster%29)
 
-
-- (r320) Mellanox MX354A Dual port FDR CX3 adapter (Apt cluster)
 - (d6515) Dual-port Mellanox ConnectX-5 100 GB NIC (PCIe v4.0)
 
 ## Source Code
@@ -15,7 +13,6 @@ git clone https://github.com/rlawjd10/test.git
 1. Set bash as the default shell
 ```bash
 sudo su
-chsh -s /bin/bash
 cd test
 ```
 2. Install [Mellanox-OFED driver](https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/)
@@ -23,9 +20,6 @@ cd test
 sh ./script/installMLNX.sh
 ```
 
-```
-sh ./script/installMLNX2.sh
-```
 4. network setting
 ```sh
 sudo nano /etc/netplan/01-netcfg.yaml
