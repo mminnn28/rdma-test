@@ -32,3 +32,4 @@ echo $mode $ubuntu_version $ofed_fid
 sudo ./mlnxofedinstall --force
 sudo /etc/init.d/openibd restart
 sudo /etc/init.d/opensmd restart
+reboot
