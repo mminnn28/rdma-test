@@ -7,17 +7,19 @@ RDMA test code
 - Software Requirements: Ubuntu 22.04, Mellanox OFED 5.8-5.1.1.2
 
 ## Source Code
-```bash
+```shell
 git clone https://github.com/rlawjd10/rdma-test.git
 ```
 ## Environment Setup
 1. Set bash as the default shell
-```bash
+```shell
 sudo su
+```
+```shell
 cd rdma-test
 ```
 2. Install [Mellanox-OFED driver](https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/)
-```
+```shell
 sh ./script/installMLNX.sh
 ```
 ```shell
@@ -25,7 +27,7 @@ sudo /etc/init.d/openibd restart
 ```
 
 3. benchmarking
-```
+```shell
 ibv_devinfo
 ibv_devices
 rdma link
