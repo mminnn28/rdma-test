@@ -50,14 +50,8 @@ root@node-0:/users/Jeongeun# ibv_devices
     mlx5_1          	1c34da030041cab5
 
 
-root@node-0:/users/Jeongeun# rdma -d link 
-link mlx5_0/1 state DOWN physical_state DISABLED netdev enp65s0f0np0 netdev_index 8 
-link mlx5_1/1 state DOWN physical_state DISABLED netdev enp65s0f1np1 netdev_index 9
-
-
 # Bring up the first port enp65s0f0np0
 root@node-0:/users/Jeongeun# ip link set enp65s0f0np0 up
-
 
 ```
 
