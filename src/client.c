@@ -25,7 +25,7 @@ enum {
 
 struct pdata {
     uint64 t buf_va;
-    uint32 t buf_rkey; 30
+    uint32 t buf_rkey;
 }
 
 int main(int argc, char *argv[]) {
