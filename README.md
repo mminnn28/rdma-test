@@ -7,42 +7,26 @@ RDMA test code
 
 ## Source Code
 ```bash
-git clone https://github.com/rlawjd10/test.git
+git clone https://github.com/rlawjd10/rdma-test.git
 ```
 ## Environment Setup
 1. Set bash as the default shell
 ```bash
 sudo su
-cd test
+cd rdma-test
 ```
 2. Install [Mellanox-OFED driver](https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/)
 ```
 sh ./script/installMLNX.sh
 ```
-
-4. network setting
-```sh
-sudo nano /etc/netplan/01-netcfg.yaml
+3. Resize disk partition
 ```
-```yaml
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    ib0:
-      addresses:
-        - 192.168.1.20/24
-      gateway4: 192.168.1.1
-      nameservers:
-        addresses:
-          - 8.8.8.8
-          - 8.8.4.4
-
+sh ./script/resizePartition.sh
 ```
 ```
-sudo netplan apply
+resize2fs /dev/sda1
 ```
-6. checking
+5. benchmarking
 ```
 ibv_devinfo
 ibv_devices
@@ -52,16 +36,8 @@ ip addr show
 
 
 # server
-ib_write_bw
-
-# client
-ib_write_bw <server IP>
-```
-4. benchmarking
-```
-#server
 ib_send_bw -d mlx4_0 -i 1 -F --report_gbits
 
-#client
-ib_send_bw -d mlx4_0 -i 1 -F --report_gbits 192.168.1.10
+# client
+ib_send_bw -d mlx4_0 -i 1 -F --report_gbits <server IP>
 ```
