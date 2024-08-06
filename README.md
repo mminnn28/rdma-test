@@ -23,17 +23,8 @@ sh ./script/installMLNX.sh
 ```shell
 sudo /etc/init.d/openibd restart
 ```
-3. Resize disk partition
-   
-   Since the d6515 nodes remain a large unallocated disk partition by default, you should resize the disk partition using the following command:
 
-```shell
-sh ./script/resizePartition.sh
-```
-```shell
-resize2fs /dev/sda1
-```
-4. benchmarking
+3. benchmarking
 ```
 ibv_devinfo
 ibv_devices
