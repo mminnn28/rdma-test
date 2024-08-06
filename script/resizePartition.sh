@@ -23,3 +23,4 @@ No
 p
 w
 " | sudo fdisk /dev/sda
+reboot
