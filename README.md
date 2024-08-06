@@ -1,9 +1,10 @@
 # test
 RDMA test code
 
-### cluster [cloudlab](https://docs.cloudlab.us/hardware.html#%28part._apt-cluster%29)
+### The [cloudlab](https://docs.cloudlab.us/hardware.html#%28part._apt-cluster%29) cluster
 
-- (d6515) Dual-port Mellanox ConnectX-5 100 GB NIC (PCIe v4.0)
+- (d6515 nodes) Dual-port Mellanox ConnectX-5 100 GB NIC (PCIe v4.0)
+- Software Requirements: Ubuntu 22.04, Mellanox OFED 5.8-5.1.1.2
 
 ## Source Code
 ```bash
@@ -20,13 +21,16 @@ cd rdma-test
 sh ./script/installMLNX.sh
 ```
 3. Resize disk partition
-```
+   
+   Since the d6515 nodes remain a large unallocated disk partition by default, you should resize the disk partition using the following command:
+
+```shell
 sh ./script/resizePartition.sh
 ```
-```
+```shell
 resize2fs /dev/sda1
 ```
-5. benchmarking
+4. benchmarking
 ```
 ibv_devinfo
 ibv_devices
