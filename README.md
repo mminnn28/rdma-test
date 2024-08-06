@@ -75,7 +75,7 @@ enp65s0f0np0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 9000
 
 ```
 
-3. benchmarking
+3. Benchmarking (BW Test)
 ```shell
 # server
 ib_send_bw -d mlx4_0 -i 1 -F --report_gbits
