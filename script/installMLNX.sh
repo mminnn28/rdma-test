@@ -18,11 +18,11 @@ fi
 cd tmp
 
 # Download and extract the appropriate Mellanox OFED package
-if [ "$ubuntu_version" == "18.04" ]; then
+if [ "$ubuntu_version" = "18.04" ]; then
   wget https://content.mellanox.com/ofed/MLNX_OFED-5.8-5.1.1.2/MLNX_OFED_LINUX-5.8-5.1.1.2-ubuntu18.04-x86_64.tgz
   tar -xzvf MLNX_OFED_LINUX-5.8-5.1.1.2-ubuntu18.04-x86_64.tgz
   cd MLNX_OFED_LINUX-5.8-5.1.1.2-ubuntu18.04-x86_64
-elif [ "$ubuntu_version" == "22.04" ]; then
+elif [ "$ubuntu_version" = "22.04" ]; then
   wget https://content.mellanox.com/ofed/MLNX_OFED-5.8-5.1.1.2/MLNX_OFED_LINUX-5.8-5.1.1.2-ubuntu22.04-x86_64.tgz
   tar -xzvf MLNX_OFED_LINUX-5.8-5.1.1.2-ubuntu22.04-x86_64.tgz
   cd MLNX_OFED_LINUX-5.8-5.1.1.2-ubuntu22.04-x86_64
