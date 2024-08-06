@@ -22,6 +22,7 @@ cd rdma-test
 ```shell
 sh ./script/installMLNX.sh
 ```
+After reboot, use the following command:
 ```shell
 sudo /etc/init.d/openibd restart
 ```
