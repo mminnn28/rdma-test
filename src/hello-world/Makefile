@@ -1,16 +1,19 @@
 all: client server
 
-client.out : client.o
-	gcc -o client client.o
+server: server.o common.o
+	gcc -o server server.o common.o -libverbs -lrdmacm
 
-client.o : client.c
-	gcc -c -o client.o client.c
+client: client.o common.o
+	gcc -o client client.o common.o -libverbs -lrdmacm
 
-server.out : server.o
-	gcc -o server server.o
+server.o: server.c common.h
+	gcc -c server.c
 
-server.o : server.c
-	gcc -c -o server.o server.c
+client.o: client.c common.h
+	gcc -c client.c
+
+common.o: common.c common.h
+	gcc -c common.c
 
 clean:
-	rm *.o client server
+	rm -f *.o server client
