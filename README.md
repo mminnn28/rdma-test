@@ -58,8 +58,8 @@ root@node-0:/users/Jeongeun# ip link set enp65s0f0np0 up
 3. Benchmarking (BW Test)
 ```shell
 # server
-ib_send_bw -d mlx4_0 -i 1 -F --report_gbits
+ib_send_bw -d mlx5_0 -i 1 -F --report_gbits
 
 # client
-ib_send_bw -d mlx4_0 -i 1 -F --report_gbits <server IP>
+ib_send_bw -d mlx5_0 -i 1 -F --report_gbits <server IP>
 ```
