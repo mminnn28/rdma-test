@@ -81,7 +81,7 @@ int main() {
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(SERVER_PORT);
-    addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+    addr.sin_addr.s_addr = INADDR_ANY;
 
     rdma_bind_addr(listener, (struct sockaddr *)&addr);
     rdma_listen(listener, 1);
