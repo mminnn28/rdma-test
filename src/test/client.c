@@ -7,33 +7,25 @@ static struct rdma_event_channel *ec = NULL;
 static struct rdma_cm_event *event = NULL;
 static struct ibv_qp_init_attr *qp_attr;
 
-/* These are memory buffers related resources */
-// mr = memory region
-static struct ibv_mr *client_meta_mr = NULL, 
-		     *client_src_mr = NULL, 
-		     *client_dst_mr = NULL, 
-		     *server_meta_mr = NULL;
-static struct rdma_buffer_attr client_meta_attr, server_meta_attr;
-static struct ibv_send_wr client_send_wr, *bad_client_send_wr = NULL;
-static struct ibv_recv_wr server_recv_wr, *bad_server_recv_wr = NULL;
-static struct ibv_sge client_send_sge, server_recv_sge;
-
 // Function prototypes
 static int setup_connection(struct sockaddr_in *addr);
 static int pre_post_recv_buffer();
 static int connect_server();
-static int exchange_metadata();
-static int client_remote_memory_ops();
-static int client_disconnect_and_clean();
+int on_connection();
+void send_put(struct rdma_cm_id * id, struct message msg_send);
+void send_get(struct rdma_cm_id *id, struct message msg_send);
+
 
 int main(int argc, char **argv) {
 
     /* 서버 구조체 설정*/
-    struct sockaddr_in addr; // 수신할 서버의 정보를 담은 소켓 구조체
+    struct sockaddr_in addr = {
+		.sin_family = AF_INET; // IPv4
+		.sin_port = htons(SERVER_PORT); // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
+		.sin_addr.s_addr = inet_addr(argv[1]); // 서버의 IP 주소를 network byte order로 변환
+	}
+	
     memset(&addr, 0, sizeof(addr)); // 구조체를 모두 '0'으로 초기화
-    addr.sin_family = AF_INET; // IPv4
-    addr.sin_port = htons(SERVER_PORT); // (굳이 없어도 될 듯) 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
-    addr.sin_addr.s_addr = inet_addr(argv[1]); // 서버의 IP 주소를 network byte order로 변환
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
@@ -47,37 +39,17 @@ int main(int argc, char **argv) {
 		rdma_error("Failed to setup client connection , ret = %d \n", ret);
 		return ret;
 	}
-    ret = pre_post_recv_buffer();
-    if (ret) { 
-		rdma_error("Failed to post receives , ret = %d \n", ret);
-		return ret;
-	}
     ret = connect_server();
     if (ret) { 
 		rdma_error("Failed to connect server , ret = %d \n", ret);
 		return ret;
 	}
+	ret = on_connection();
+    if (ret) { 
+		rdma_error("Failed to connect , ret = %d \n", ret);
+		return ret;
+	}
 
-    //여기서부터
-    ret = exchange_metadata();
-	if (ret) {
-		rdma_error("Failed to setup client connection , ret = %d \n", ret);
-		return ret;
-	}
-	ret = client_remote_memory_ops();
-	if (ret) {
-		rdma_error("Failed to finish remote memory ops, ret = %d \n", ret);
-		return ret;
-	}
-	// if (check_src_dst()) {
-	// 	rdma_error("src and dst buffers do not match \n");
-	// } else {
-	// 	printf("...\nSUCCESS, source and destination buffers match \n");
-	// }
-	ret = client_disconnect_and_clean();
-	if (ret) {
-		rdma_error("Failed to cleanly disconnect and clean up resources \n");
-	}
 
     return 0;
 }
@@ -86,7 +58,7 @@ static int setup_connection(struct sockaddr_in *addr) {
     
     int ret;
 
-    //추후 rdma_getaddrinfo 함수 추가할 예정 (destination address 검색)
+	getaddrinfo(argv[1], SERVER_PORT, NULL, &addr);
 
     /*  Open a channel used to report asynchronous communication event */
     // 이벤트를 수신할 채널을 작성
@@ -109,7 +81,7 @@ static int setup_connection(struct sockaddr_in *addr) {
     /* RDMA 연결을 위한 주어진 주소를 해석하고 RDMA 연결을 설정하기 위한 초기 작업 */
     // 로컬 RDMA 장치를 확보하여 remote 주소에 도달
     printf("Resolving address...\n");
-    ret = rdma_resolve_addr(id, NULL, (struct sockaddr *)&addr, 2000);
+    ret = rdma_resolve_addr(id, NULL, (struct sockaddr *)&addr, TIMEOUT_IN_MS);
     if (ret) {
         perror("rdma_resolve_addr");
         exit(EXIT_FAILURE);
@@ -162,7 +134,7 @@ static int setup_connection(struct sockaddr_in *addr) {
     }
     
     /* ack the event */
-    // 경로 해결이 완료되었음
+    // routing 완료
     printf("Acknowledge the CM event(routing resolved)...\n\n")
     ret = rdma_ack_cm_event(event);
     if (ret) {
@@ -173,46 +145,16 @@ static int setup_connection(struct sockaddr_in *addr) {
     return 0;
 }
 
-static int pre_post_recv_buffer()
-{
-	int ret = 0;
-
-    // memory region을 등록하고 그 포인터를 server_meta_mr 에 저장
-    ctx.qp = id->qp;
-	server_meta_mr = rdma_buffer(&ctx);
-    id->context = &ctx;
-
-	if(!server_meta_mr){
-		rdma_error("Failed to setup the server metadata mr , -ENOMEM\n");
-		return -ENOMEM;
-	}
-
-    server_recv_sge.addr = (uintptr_t)ctx->buffer;
-	server_recv_sge.length = BUFFER_SIZE;
-	server_recv_sge.lkey = ctx->mr->lkey;
-
-    memset(&server_recv_wr, 0, sizeof(server_recv_wr));
-    server_recv_wr.wr_id = (uintptr_t)ctx;
-	server_recv_wr.next = NULL;
-    server_recv_wr.sg_list = &server_recv_sge;
-	server_recv_wr.num_sge = 1;
-
-	ret = ibv_post_recv(ctx->qp, &server_recv_wr, &bad_server_recv_wr)
-	if (ret) {
-		rdma_error("Failed to pre-post the receive buffer, errno: %d \n", ret);
-		return ret;
-	}
-	
-	return 0;
-}
 //QP 실험해보고 삭제하던가
 static int connect_server() {
-    struct rdma_conn_param conn_param;
+
+    struct rdma_conn_param conn_param = {
+		.initiator_depth = 3; //The maximum number of outstanding RDMA read and atomic operations
+		.responder_resources = 3;
+		.retry_count = 3; // if fail, then how many times to retry
+	}
 
     memset(&conn_param, 0, sizeof(conn_param);)
-    conn_param.initiator_depth = 3; //The maximum number of outstanding RDMA read and atomic operations
-    conn_param.responder_resources = 3;
-    conn_param.retry_count = 3; // if fail, then how many times to retry
 
     printf("Connecting...\n");
     ret = rdma_connect(id, &conn_param);
@@ -252,253 +194,82 @@ static int connect_server() {
     return 0;
 }
 
-
-//클라이언트 메타데이터(버퍼주소, 길이, 스택정보)를 서버와 교환
-static int exchange_metadata()
+int on_connection()
 {
-    struct ibv_wc *wc;
-    int ret = 0;
-    client_src_mr = rdma_buffer(&ctx);
-    if(!client_src_mr){
-		rdma_error("Failed to register the first buffer, ret = %d \n", ret);
-		return ret;
+	while(1) {
+		char command[256];
+		struct message msg_send;
+
+		printf("Enter command (put <key> <value> /get <key>): ");
+    	scanf("%s", command);
+
+		memcpy(ctx->send_buffer,&msg_send,sizeof(struct message));
+
+		if (strcmp(command, "put") == 0) {
+            scanf("%s %s", key, value);
+            send_put(id, msg_send);
+        } else if (strcmp(command, "get") == 0) {
+            scanf("%s", key);
+            send_get(id, msg_send);
+        } else {
+            printf("Invalid command  \n");
+        }
 	}
 
-	/* we prepare metadata for the first buffer */
-	client_meta_attr.address = (uint64_t) client_src_mr->addr; 
-	client_meta_attr.length = client_src_mr->length; 
-	client_meta_attr.stag.local_stag = client_src_mr->lkey;
-
-	/* now we register the metadata memory */
-	client_meta_attr = rdma_buffer(&ctx);
-	if(!client_meta_attr) {
-		rdma_error("Failed to register the client metadata buffer, ret = %d \n", ret);
-		return ret;
-	}
-	/* now we fill up SGE */
-	client_send_sge.addr = (uint64_t) client_meta_attr->addr;
-	client_send_sge.length = (uint32_t) client_meta_attr->length;
-	client_send_sge.lkey = client_meta_attr->lkey;
-
-	/* now we link to the send work request */
-	memset(&client_send_wr, 0, sizeof(client_send_wr));
-	client_send_wr.sg_list = &client_send_sge;
-	client_send_wr.num_sge = 1;
-	client_send_wr.opcode = IBV_WR_SEND;
-	client_send_wr.send_flags = IBV_SEND_SIGNALED;
-
-	/* Now we post it */
-	ret = ibv_post_send(ctx->qp, &client_send_wr, &bad_client_send_wr);
-	if (ret) {
-		rdma_error("Failed to send client metadata, errno: %d \n", -errno);
-		return -errno;
-	}
-
-	ret = process_work_completion_events(ctx.comp_channel, wc, 2);
-	if(ret != 2) {
-		rdma_error("We failed to get 2 work completions , ret = %d \n", ret);
-		return ret;
-	}
-	
-	show_rdma_buffer_attr(&server_metad_attr);
-
-	return 0;
+	return ret;
 }
 
-//실제로 클라이언트가 서버의 메모리로 데이터를 쓰고, 서버의 메모리에서 데이터를 읽어오는 작업을 수행
-//클라이언트는 자신의 메모리(client_dst_mr)를 등록하고, RDMA 쓰기(IBV_WR_RDMA_WRITE)를 통해 클라이언트의 데이터를 서버의 메모리에 쓴다
-static int client_remote_memory_ops() 
-{
-	struct ibv_wc wc;
-	int ret = -1;
+// put
+void send_put(struct rdma_cm_id * id, struct message msg_send) {
+
+    snprintf(ctx.send_buffer, BUFFER_SIZE, "PUT %s %s", msg_send.kv.key, msg_send.kv.value);
     
-	client_dst_mr = rdma_buffer(&ctx);
-	if (!client_dst_mr) {
-		rdma_error("We failed to create the destination buffer, -ENOMEM\n");
-		return -ENOMEM;
-	}
+    struct ibv_send_wr wr, *bad_wr = NULL;
+    struct ibv_sge sge;
 
-	/* Step 1: is to copy the local buffer into the remote buffer. We will 
-	 * reuse the previous variables. */
-	client_send_sge.addr = (uint64_t) client_src_mr->addr;
-	client_send_sge.length = (uint32_t) client_src_mr->length;
-	client_send_sge.lkey = client_src_mr->lkey;
+	memset(&wr, 0, sizeof(wr));
 
-	/* now we link to the send work request */
-	memset(&client_send_wr, 0, sizeof(client_send_wr));
-	client_send_wr.sg_list = &client_send_sge;
-	client_send_wr.num_sge = 1;
-	client_send_wr.opcode = IBV_WR_RDMA_WRITE;
-	client_send_wr.send_flags = IBV_SEND_SIGNALED;
+    wr.wr_id = (uintptr_t)id;
+    wr.sg_list = &sge;
+    wr.num_sge = MAX_SGE;
+    wr.opcode = IBV_WR_SEND;
+    wr.send_flags = IBV_SEND_SIGNALED;
 
-	/* we have to tell server side info for RDMA */
-	client_send_wr.wr.rdma.rkey = server_meta_attr.stag.remote_stag;
-	client_send_wr.wr.rdma.remote_addr = server_meta_attr.address;
+	sge.addr = (uintptr_t)ctx.send_buffer;
+    sge.length = BUFFER_SIZE;
+    sge.lkey = ctx.send_mr->lkey;
 
-	/* Now we post it */
-	ret = ibv_post_send(ctx->qp, &client_send_wr,&bad_client_send_wr);
-	if (ret) {
-		rdma_error("Failed to write client src buffer, errno: %d \n", -errno);
-		return -errno;
-	}
+    if (ibv_post_send(id->qp, &wr, &bad_wr)) {
+        fprintf(stderr, "PUT ibv_post_send error. \n");
+    }
 
-	/* at this point we are expecting 1 work completion for the write */
-	ret = process_work_completion_events(ctx.comp_channel, &wc, 1);
-	if(ret != 1) {
-		rdma_error("We failed to get 1 work completions , ret = %d \n",ret);
-		return ret;
-	}
+	//recv_msg(id);
+}
+
+// get
+void send_get(struct rdma_cm_id *id, struct message msg_send) {
     
-	/* Now we prepare a READ using same variables but for destination */
-	client_send_sge.addr = (uint64_t) client_dst_mr->addr;
-	client_send_sge.length = (uint32_t) client_dst_mr->length;
-	client_send_sge.lkey = client_dst_mr->lkey;
+    snprintf(ctx.send_buffer, BUFFER_SIZE, "GET %s", kv_pair.key);
 
-	/* now we link to the send work request */
-	bzero(&client_send_wr, sizeof(client_send_wr));
-	client_send_wr.sg_list = &client_send_sge;
-	client_send_wr.num_sge = 1;
-	client_send_wr.opcode = IBV_WR_RDMA_READ;
-	client_send_wr.send_flags = IBV_SEND_SIGNALED;
+    struct ibv_send_wr wr, *bad_wr = NULL;
+    struct ibv_sge sge;
 
-	/* we have to tell server side info for RDMA */
-	client_send_wr.wr.rdma.rkey = server_meta_attr.stag.remote_stag;
-	client_send_wr.wr.rdma.remote_addr = server_meta_attr.address;
+    memset(&wr, 0, sizeof(wr));
 
-	/* Now we post it */
-	ret = ibv_post_send(ctx.comp_channel, &client_send_wr,&bad_client_send_wr);
-	if (ret) {
-		rdma_error("Failed to read client dst buffer from the master, errno: %d \n", -errno);
-		return -errno;
-	}
+    wr.wr_id = (uintptr_t)id;
+    wr.sg_list = &sge;
+    wr.num_sge = MAX_SGE;
+    wr.opcode = IBV_WR_SEND;
+    wr.send_flags = IBV_SEND_SIGNALED;
 
-	/* at this point we are expecting 1 work completion for the write */
-	ret = process_work_completion_events(ctx.comp_channel, &wc, 1);
-	if(ret != 1) {
-		rdma_error("We failed to get 1 work completions , ret = %d \n",ret);
-		return ret;
-	}
-	
-	return 0;
+	sge.addr = (uintptr_t)ctx.send_buffer;
+    sge.length = BUFFER_SIZE;
+    sge.lkey = ctx.send_mr->lkey;
+
+    if (ibv_post_send(id->qp, &wr, &bad_wr)) {
+        fprintf(stderr, "GET ibv_post_send error. \n");
+    }
+
+	recv_msg(ctx);
 }
 
-static int client_disconnect_and_clean()
-{
-	/* active disconnect from the client side */
-	rdma_disconnect(id);
-	rdma_destroy_qp(id);
-	rdma_destroy_id(id);
-
-    process_rdma_cm_event(ec, RDMA_CM_EVENT_DISCONNECTED, &event);
-	rdma_ack_cm_event(event);
-	
-	/* Destroy CQ */
-	ibv_destroy_cq(ctx.cq);
-	
-	/* Destroy completion channel */
-	ibv_destroy_comp_channel(ctx.comp_channel);
-	
-	/* Destroy memory buffers */
-    ibv_dereg_mr(server_meta_mr.mr);
-    ibv_dereg_mr(client_meta_mr);
-    ibv_dereg_mr(client_src_mr);
-    ibv_dereg_mr(client_dst_mr);
-	
-
-	/* We free the buffers */
-	// free(src);
-	// free(dst);
-    free(ctx.buffer);
-
-	/* Destroy protection domain */
-	ibv_dealloc_pd(ctx.pd);
-	rdma_destroy_event_channel(ctx.comp_channel);
-
-	printf("Client resource clean up is complete \n");
-	return 0;
-}
-
-   
-
-
-
-//     void setup_connection(const char *server_ip) {
-//     char command[256];
-//     while (1) {
-//         printf("Enter command (put/get): ");
-//         if (fgets(command, sizeof(command), stdin) == NULL) {
-//             perror("fgets");
-//             exit(EXIT_FAILURE);
-//         }
-//         command[strcspn(command, "\n")] = '\0'; // Newline 제거
-
-//         struct message *msg = (struct message *)ctx.buffer;
-//         if (strncmp(command, "put", 3) == 0) {
-//             msg->type = MSG_PUT;
-//             printf("Enter key: ");
-//             if (fgets(msg->kv.key, KEY_VALUE_SIZE, stdin) == NULL) {
-//                 perror("fgets");
-//                 exit(EXIT_FAILURE);
-//             }
-//             msg->kv.key[strcspn(msg->kv.key, "\n")] = '\0'; // Newline 제거
-//             printf("Enter value: ");
-//             if (fgets(msg->kv.value, KEY_VALUE_SIZE, stdin) == NULL) {
-//                 perror("fgets");
-//                 exit(EXIT_FAILURE);
-//             }
-//             msg->kv.value[strcspn(msg->kv.value, "\n")] = '\0'; // Newline 제거
-//             msg->addr = 0; // 주소는 서버가 응답할 때 설정됨
-
-//             struct ibv_sge sge;
-//             struct ibv_send_wr wr, *bad_wr = NULL;
-
-//             sge.addr = (uintptr_t)ctx.buffer;
-//             sge.length = sizeof(struct message);
-//             sge.lkey = ctx.mr->lkey;
-
-//             memset(&wr, 0, sizeof(wr));
-//             wr.wr_id = (uintptr_t)&ctx;
-//             wr.opcode = IBV_WR_SEND;
-//             wr.sg_list = &sge;
-//             wr.num_sge = 1;
-
-//             if (ibv_post_send(ctx.qp, &wr, &bad_wr)) {
-//                 perror("ibv_post_send");
-//                 exit(EXIT_FAILURE);
-//             }
-
-//             post_receives(&ctx);
-
-//         } else if (strncmp(command, "get", 3) == 0) {
-//             msg->type = MSG_GET;
-//             printf("Enter key: ");
-//             if (fgets(msg->kv.key, KEY_VALUE_SIZE, stdin) == NULL) {
-//                 perror("fgets");
-//                 exit(EXIT_FAILURE);
-//             }
-//             msg->kv.key[strcspn(msg->kv.key, "\n")] = '\0'; // Newline 제거
-//             msg->addr = 0; // 주소는 서버가 응답할 때 설정됨
-
-//             struct ibv_sge sge;
-//             struct ibv_send_wr wr, *bad_wr = NULL;
-
-//             sge.addr = (uintptr_t)ctx.buffer;
-//             sge.length = sizeof(struct message);
-//             sge.lkey = ctx.mr->lkey;
-
-//             memset(&wr, 0, sizeof(wr));
-//             wr.wr_id = (uintptr_t)&ctx;
-//             wr.opcode = IBV_WR_SEND;
-//             wr.sg_list = &sge;
-//             wr.num_sge = 1;
-
-//             if (ibv_post_send(ctx.qp, &wr, &bad_wr)) {
-//                 perror("ibv_post_send");
-//                 exit(EXIT_FAILURE);
-//             }
-
-//             post_receives(&ctx);
-//         }
-//     }
-
-// }
