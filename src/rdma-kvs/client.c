@@ -116,9 +116,12 @@ int main(int argc, char **argv) {
 }
 /*
 ./client 10.10.1.1
-Enter command (put/get): put a b
-Enter key: Enter value: Enter command (put/get): get a
-Enter key: Enter command (put/get): get a
-Enter key: Enter command (put/get): put a b
-Enter key: Enter value: Enter command (put/get): ^C
+Enter command (put/get): put
+Enter key: a
+Enter value: b
+Enter command (put/get): get
+Enter key: a
+Enter command (put/get): get
+Enter key: a
+Enter command (put/get): ^C
  */
