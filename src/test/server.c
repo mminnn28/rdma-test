@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
     struct sockaddr_in addr = {
         .sin_family = AF_INET, // IPv4
         .sin_port = htons(SERVER_PORT), // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
-        .sin_addr.s_addr = INADDR_ANY // 서버의 IP 주소를 network byte order로 변환
+        .sin_addr.s_addr =  htonl(INADDR_ANY) // 서버의 IP 주소를 network byte order로 변환
     };
 
     memset(&addr, 0, sizeof(addr));
@@ -52,7 +52,7 @@ void setup_connection(struct sockaddr_in *addr) {
     }
 
 
-    ret = rdma_bind_addr(id, (struct sockaddr *)&addr);
+    ret = rdma_bind_addr(id, (struct sockaddr *)addr);
     if (ret) {
         perror("rdma_bind_addr");
         exit(EXIT_FAILURE);
