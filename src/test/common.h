@@ -62,7 +62,7 @@ struct rdma_context {
 // Function prototypes
 void build_context(struct rdma_context *ctx);
 void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx);
-void ibv_mr* rdma_buffer(struct rdma_context *ctx);
+struct ibv_mr* rdma_buffer(struct rdma_context *ctx);
 void recv_msg(struct rdma_context *ctx);
 void * poll_send_cq(void * context);
 void * poll_recv_cq(void * context);
