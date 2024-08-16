@@ -61,14 +61,14 @@ struct ibv_mr* rdma_buffer(struct rdma_context *ctx) {
     ctx->send_mr = ibv_reg_mr(ctx->pd, ctx->send_buffer, BUFFER_SIZE, permission);
     if(!ctx->send_mr){
 		rdma_error("Failed to register memory region, errno: %d \n", -errno);
-        free(ctx->buffer);
+        free(ctx->send_buffer);
         return NULL;
 	}
 
 	ctx->recv_mr = ibv_reg_mr(ctx->pd, ctx->recv_buffer, BUFFER_SIZE, permission);
     if(!ctx->recv_mr){
 		rdma_error("Failed to register memory region, errno: %d \n", -errno);
-        free(ctx->buffer);
+        free(ctx->recv_buffer);
         return NULL;
 	}
 }
@@ -87,9 +87,9 @@ void recv_msg(struct rdma_context *ctx)
 
 	sge.addr = (uintptr_t)ctx->recv_buffer;
     sge.length = BUFFER_SIZE;
-    sge.lkey = ctx.send_mr->lkey;
+    sge.lkey = ctx->send_mr->lkey;
 	
-	if (ibv_post_recv(id->qp,&wr,&bad_wr)) {
+	if (ibv_post_recv(ctx->qp,&wr,&bad_wr)) {
 		fprintf(stderr, "ibv_post_send error.\n");
 	}
 }
@@ -104,7 +104,7 @@ void * poll_send_cq(void * context)
 	struct ibv_cq * cq;
 	void * tar;
 
-	while(true) {
+	while(1) {
 		ibv_get_cq_event(ctx->cq,&cq,&tar);
 		ibv_ack_cq_events(cq,1);
 		ibv_req_notify_cq(cq,0);
@@ -134,7 +134,7 @@ void * poll_recv_cq(void * context)
 	struct ibv_cq * cq;
 	void * tar;
 
-	while(true) {
+	while(1) {
 		ibv_get_cq_event(ctx->cq,&cq,&tar);
 		ibv_ack_cq_events(cq,1);
 		ibv_req_notify_cq(cq,0);
