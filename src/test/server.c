@@ -21,7 +21,7 @@ void on_complete(struct ibv_wc *wc);
 int on_disconnect(struct rdma_cm_id * id);
 
 
-int main() {
+int main(int argc, char **argv) {
 
     struct sockaddr_in addr = {
         .sin_family = AF_INET, // IPv4
