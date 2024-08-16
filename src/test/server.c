@@ -192,7 +192,7 @@ void on_complete(struct ibv_wc *wc) {
         wr.num_sge = 1;
 
         ibv_post_send(ctx->qp, &wr, &bad_wr);
-        post_receives(ctx);
+        recv_msg(&ctx);
     }
 }
 
