@@ -9,6 +9,11 @@
 #include <rdma/rdma_cma.h>
 #include <rdma/rdma_verbs.h>
 
+/* Error Macro*/
+#define rdma_error(msg, args...) do {\
+	fprintf(stderr, "%s : %d : ERROR : "msg, __FILE__, __LINE__, ## args);\
+}while(0);
+
 // Define constants
 #define KEY_VALUE_SIZE 256
 #define BUFFER_SIZE (KEY_VALUE_SIZE * 2)
