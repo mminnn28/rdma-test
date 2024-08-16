@@ -15,18 +15,18 @@ struct kv_store {
 } kv_store[KV_STORE_SIZE];
 
 void setup_connection(struct sockaddr_in *addr);
-void on_event(struct rdma_cm_event * event);
+int on_event(struct rdma_cm_event * event);
 void on_connect(struct rdma_cm_id *id);
 void on_completion(struct ibv_wc *wc);
 
 
 int main() {
-    
+
     struct sockaddr_in addr = {
-		.sin_family = AF_INET; // IPv4
-		.sin_port = htons(SERVER_PORT); // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
-		.sin_addr.s_addr = INADDR_ANY; // 서버의 IP 주소를 network byte order로 변환
-	}
+        .sin_family = AF_INET, // IPv4
+        .sin_port = htons(SERVER_PORT), // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
+        .sin_addr.s_addr = INADDR_ANY // 서버의 IP 주소를 network byte order로 변환
+    };
 
     memset(&addr, 0, sizeof(addr));
 
@@ -92,9 +92,10 @@ void setup_connection(struct sockaddr_in *addr) {
     }
 }
 
-void on_event(struct rdma_cm_event * event)
+int on_event(struct rdma_cm_event * event)
 {
 	printf("event type: %s.\n",rdma_event_str(event->event));
+    int ret = 0;
 
 	if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST)
 	{
@@ -109,7 +110,7 @@ void on_event(struct rdma_cm_event * event)
 	else if(event->event == RDMA_CM_EVENT_ESTABLISHED)
 	{
 		printf("connect established.\n");
-        on_connect(event->id);
+        ret = on_connect(event->id);
 	}
 	else if(event->event == RDMA_CM_EVENT_DISCONNECTED)
 	{
@@ -133,7 +134,7 @@ void on_connect(struct rdma_cm_id *id) {
     rdma_ack_cm_event(event);
     while (1) {
         struct ibv_wc wc;
-        int num_completions = ibv_poll_cq(ctx.cq, 1, &wc);
+        int num_completions = ibv_poll_cq(ctx->cq, 1, &wc);
         if (num_completions > 0) {
             on_completion(&wc);
         }
@@ -142,7 +143,7 @@ void on_connect(struct rdma_cm_id *id) {
 
 void on_completion(struct ibv_wc *wc) {
     struct rdma_context *ctx = (struct rdma_context *)(uintptr_t)wc->wr_id;
-    struct message *msg = (struct message *)ctx->buffer;
+    struct message *msg = (struct message *)ctx->send_buffer;
 
     if (wc->opcode == IBV_WC_RECV) {
         if (msg->type == MSG_PUT) {
@@ -173,9 +174,9 @@ void on_completion(struct ibv_wc *wc) {
         struct ibv_sge sge;
         struct ibv_send_wr wr, *bad_wr = NULL;
 
-        sge.addr = (uintptr_t)ctx->buffer;
+        sge.addr = (uintptr_t)ctx->send_buffer;
         sge.length = sizeof(struct message);
-        sge.lkey = ctx->mr->lkey;
+        sge.lkey = ctx->send_mr->lkey;
 
         memset(&wr, 0, sizeof(wr));
         wr.wr_id = (uintptr_t)ctx;
@@ -187,3 +188,4 @@ void on_completion(struct ibv_wc *wc) {
         post_receives(ctx);
     }
 }
+
