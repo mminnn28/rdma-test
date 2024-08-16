@@ -20,10 +20,11 @@ int main(int argc, char **argv) {
 
     /* 서버 구조체 설정*/
     struct sockaddr_in addr = {
-		.sin_family = AF_INET; // IPv4
-		.sin_port = htons(SERVER_PORT); // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
-		.sin_addr.s_addr = inet_addr(argv[1]); // 서버의 IP 주소를 network byte order로 변환
-	};
+        .sin_family = AF_INET, // IPv4
+        .sin_port = htons(SERVER_PORT), // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
+        .sin_addr.s_addr = inet_addr(argv[1]) // 서버의 IP 주소를 network byte order로 변환
+    };
+
 	
     memset(&addr, 0, sizeof(addr)); // 구조체를 모두 '0'으로 초기화
 
@@ -52,9 +53,10 @@ int main(int argc, char **argv) {
 		return ret;
 	}
 
-	rdma_disconnect(conn);
-    rdma_destroy_qp(conn);
-    ibv_dereg_mr(ctx.mr);
+	rdma_disconnect(id);
+    rdma_destroy_qp(id);
+    ibv_dereg_mr(ctx.send_mr);
+    ibv_dereg_mr(ctx.recv_mr);
     free(ctx.send_buffer);
 	free(ctx.recv_buffer);
     ibv_destroy_cq(ctx.cq);
@@ -161,9 +163,9 @@ static int connect_server() {
     int ret = -1;
 
     struct rdma_conn_param conn_param = {
-		.initiator_depth = 3; //The maximum number of outstanding RDMA read and atomic operations
-		.responder_resources = 3;
-		.retry_count = 3; // if fail, then how many times to retry
+		.initiator_depth = 3, //The maximum number of outstanding RDMA read and atomic operations
+		.responder_resources = 3,
+		.retry_count = 3 // if fail, then how many times to retry
 	};
 
     memset(&conn_param, 0, sizeof(conn_param));
@@ -261,7 +263,7 @@ void send_put(struct rdma_cm_id * id, struct message msg_send) {
 // get
 void send_get(struct rdma_cm_id *id, struct message msg_send) {
     
-    snprintf(ctx.send_buffer, BUFFER_SIZE, "GET %s", kv_pair.key);
+    snprintf(ctx.send_buffer, BUFFER_SIZE, "GET %s", msg_send.kv.key);
 
     struct ibv_send_wr wr, *bad_wr = NULL;
     struct ibv_sge sge;
@@ -284,4 +286,5 @@ void send_get(struct rdma_cm_id *id, struct message msg_send) {
 
 	recv_msg(&ctx);
 }
+
 
