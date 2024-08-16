@@ -17,7 +17,7 @@ struct kv_store {
 void setup_connection(struct sockaddr_in *addr);
 int on_event(struct rdma_cm_event * event);
 void on_connect(struct rdma_cm_id *id);
-void on_completion(struct ibv_wc *wc);
+void on_complete(struct ibv_wc *wc);
 
 
 int main() {
@@ -110,7 +110,7 @@ int on_event(struct rdma_cm_event * event)
 	else if(event->event == RDMA_CM_EVENT_ESTABLISHED)
 	{
 		printf("connect established.\n");
-        ret = on_connect(event->id);
+        on_connect(event->id);
 	}
 	else if(event->event == RDMA_CM_EVENT_DISCONNECTED)
 	{
@@ -136,12 +136,12 @@ void on_connect(struct rdma_cm_id *id) {
         struct ibv_wc wc;
         int num_completions = ibv_poll_cq(ctx->cq, 1, &wc);
         if (num_completions > 0) {
-            on_completion(&wc);
+            on_complete(&wc);
         }
     }
 }
 
-void on_completion(struct ibv_wc *wc) {
+void on_complete(struct ibv_wc *wc) {
     struct rdma_context *ctx = (struct rdma_context *)(uintptr_t)wc->wr_id;
     struct message *msg = (struct message *)ctx->send_buffer;
 
@@ -188,4 +188,3 @@ void on_completion(struct ibv_wc *wc) {
         post_receives(ctx);
     }
 }
-
