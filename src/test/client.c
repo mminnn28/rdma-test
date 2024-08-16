@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     ibv_destroy_cq(ctx.cq);
     ibv_destroy_comp_channel(ctx.comp_channel);
     ibv_dealloc_pd(ctx.pd);
-    rdma_destroy_id(conn);
+    rdma_destroy_id(id);
     rdma_destroy_event_channel(ec);
 
     return 0;
