@@ -18,6 +18,7 @@ void setup_connection(struct sockaddr_in *addr);
 int on_event(struct rdma_cm_event * event);
 void on_connect(struct rdma_cm_id *id);
 void on_complete(struct ibv_wc *wc);
+int on_disconnect(struct rdma_cm_id * id);
 
 
 int main() {
@@ -115,6 +116,13 @@ int on_event(struct rdma_cm_event * event)
 	else if(event->event == RDMA_CM_EVENT_DISCONNECTED)
 	{
 		printf("disconnected.\n");
+       
+      
+        ibv_destroy_cq(ctx.cq);
+        ibv_destroy_comp_channel(ctx.comp_channel);
+        ibv_dealloc_pd(ctx.pd);
+        free(ctx);
+        rdma_destroy_id(id);
 
 		ret = on_disconnect(event->id);
 	}
@@ -188,3 +196,35 @@ void on_complete(struct ibv_wc *wc) {
         post_receives(ctx);
     }
 }
+
+int on_disconnect(struct rdma_cm_id * id)
+{
+	int ret = 0;
+
+	struct context * ctx = (struct context *)id->context;
+        free(ctx->send_buffer);
+        free(ctx->recv_buffer);
+        ctx->send_buffer = NULL;
+        ctx->recv_buffer = NULL;
+
+	ret = ibv_dereg_mr(ctx->send_mr);
+        if (ret)
+        {
+                printf("ibv_dereg_mr(ctx->send_mr) error");
+                return ret;
+        }
+
+        ibv_dereg_mr(ctx->recv_mr);
+        if (ret)
+        {
+                printf("ibv_dereg_mr(ctx->send_mr) error");
+                return ret;
+        }
+
+	free(id->context);
+
+        rdma_destroy_qp(id);
+	rdma_destroy_id(id);
+
+	return ret;
+}	
