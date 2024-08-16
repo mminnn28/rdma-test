@@ -1,21 +1,41 @@
 #include "common.h"
 
 // RDMA 자원 초기화
-void build_context(struct rdma_context *ctx) {
-    struct ibv_device **device_list = ibv_get_device_list(NULL); // 사용 가능한 RDMA 장치 목록 가져오기
-    ctx->device = device_list[0]; // 첫 번째 RDMA 장치 선택
-    ctx->verbs = ibv_open_device(ctx->device); // 특정 RDMA 장치 열기
-    ibv_free_device_list(device_list); // 장치 목록 해제
+void build_context(struct rdma_context *ctx, struct rdma_cm_id *id) {
+    // device
+    struct ibv_device **device_list = ibv_get_device_list(NULL);
+    ctx->device = device_list[0]; 
+    ctx->verbs = ibv_open_device(ctx->device); 
+    ibv_free_device_list(device_list); 
 
-	rdma_buffer(ctx);
+    // RDMA context structure
+    ctx->pd = ibv_alloc_pd(id->verbs);
+    if (!ctx->pd) {
+        perror("ibv_alloc_pd");
+        exit(EXIT_FAILURE);
+	}
 
-    ctx->pd = ibv_alloc_pd(ctx->verbs); // PD(Production domain) 할당 ("process abstraction")
-    ctx->comp_channel = ibv_create_comp_channel(ctx->verbs); // Completion Channel 생성
-    ctx->cq = ibv_create_cq(ctx->verbs, CQ_CAPACITY, NULL, ctx->comp_channel, 0); //Completion queue 생성
-    ibv_req_notify_cq(ctx->cq, 0); // Completion queue에서 알림 요청
+    rdma_buffer(ctx);
 
-	pthread_create(&ctx->poll_send_thread,NULL,poll_send_cq,ctx);
-	pthread_create(&ctx->poll_recv_thread,NULL,poll_recv_cq,ctx);
+    ctx->comp_channel = ibv_create_comp_channel(id->verbs); 
+    if (!ctx->comp_channel) {
+        perror("ibv_create_comp_channel");
+        exit(EXIT_FAILURE);
+	}
+
+    ctx->cq = ibv_create_cq(id->verbs, CQ_CAPACITY, NULL, ctx->comp_channel, 0);
+    if (!ctx->cq) {
+        perror("ibv_create_cq");
+        exit(EXIT_FAILURE);
+	}
+
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        perror("ibv_req_notify_cq");
+        exit(EXIT_FAILURE);
+    }
+
+	//pthread_create(&ctx->poll_send_thread,NULL,poll_send_cq,ctx);
+	//pthread_create(&ctx->poll_recv_thread,NULL,poll_recv_cq,ctx);
 }
 
 // 큐 페어 속성 설정
@@ -75,9 +95,8 @@ struct ibv_mr* rdma_buffer(struct rdma_context *ctx) {
 
 void recv_msg(struct rdma_context *ctx)
 {
-	struct ibv_recv_wr wr;
-	struct ibv_recv_wr * bad_wr = NULL;
 	struct ibv_sge sge;
+    struct ibv_recv_wr wr, *bad_wr = NULL;
 
 	memset(&wr,0,sizeof(wr));
 	wr.wr_id = (uintptr_t)ctx;
