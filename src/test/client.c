@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
 		.sin_family = AF_INET; // IPv4
 		.sin_port = htons(SERVER_PORT); // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
 		.sin_addr.s_addr = inet_addr(argv[1]); // 서버의 IP 주소를 network byte order로 변환
-	}
+	};
 	
     memset(&addr, 0, sizeof(addr)); // 구조체를 모두 '0'으로 초기화
 
@@ -34,6 +34,8 @@ int main(int argc, char **argv) {
 
     int ret;
 
+    getaddrinfo(argv[1], SERVER_PORT, NULL, &addr);
+    
     ret = setup_connection(&addr);
     if (ret) { 
 		rdma_error("Failed to setup client connection , ret = %d \n", ret);
@@ -50,6 +52,16 @@ int main(int argc, char **argv) {
 		return ret;
 	}
 
+	rdma_disconnect(conn);
+    rdma_destroy_qp(conn);
+    ibv_dereg_mr(ctx.mr);
+    free(ctx.send_buffer);
+	free(ctx.recv_buffer);
+    ibv_destroy_cq(ctx.cq);
+    ibv_destroy_comp_channel(ctx.comp_channel);
+    ibv_dealloc_pd(ctx.pd);
+    rdma_destroy_id(conn);
+    rdma_destroy_event_channel(ec);
 
     return 0;
 }
@@ -57,8 +69,6 @@ int main(int argc, char **argv) {
 static int setup_connection(struct sockaddr_in *addr) {
     
     int ret;
-
-	getaddrinfo(argv[1], SERVER_PORT, NULL, &addr);
 
     /*  Open a channel used to report asynchronous communication event */
     // 이벤트를 수신할 채널을 작성
@@ -89,7 +99,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* CM (Connection Manager) event channel에서 RDMA_CM_EVENT_ADDR_RESOLVED event 수신*/
     //RDMA_CM_EVENT_ADDR_RESOLVED 이벤트 대기
-    printf("RDMA_CM_EVENT_ADDR_RESOLVED event...\n")
+    printf("RDMA_CM_EVENT_ADDR_RESOLVED event...\n");
     ret = rdma_get_cm_event(ec, &event);
     if (ret) {
         perror("rdma_get_cm_event");
@@ -98,7 +108,7 @@ static int setup_connection(struct sockaddr_in *addr) {
     
     /* ack the event */
     // 클라이언트가 서버의 IP 주소를 기반으로 RDMA 주소를 성공적으로 얻음
-    printf("Acknowledge the CM event(address resolved)...\n")
+    printf("Acknowledge the CM event(address resolved)...\n");
     ret = rdma_ack_cm_event(event);
     if (ret) {
         perror("rdma_ack_cm_event");
@@ -117,7 +127,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* Resolves an RDMA route to the destination address in order to establish a connection */
     //주소가 성공적으로 해결된 후, RDMA CM이 서버로의 경로를 해결하도록 요청
-    printf("Resolving routing...\n")
+    printf("Resolving routing...\n");
     ret = rdma_resolve_route(id, 2000);
     if (ret) {
         perror("rdma_resolve_route");
@@ -126,7 +136,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* CM (Connection Manager) event channel에서 RDMA_CM_EVENT_ROUTE_RESOLVED event 수신*/
     //RDMA_CM_EVENT_ROUTE_RESOLVED 이벤트 대기
-    printf("RDMA_CM_EVENT_ROUTE_RESOLVED event...\n")
+    printf("RDMA_CM_EVENT_ROUTE_RESOLVED event...\n");
     ret = rdma_get_cm_event(ec, &event);
     if (ret) {
         perror("rdma_get_cm_event");
@@ -135,7 +145,7 @@ static int setup_connection(struct sockaddr_in *addr) {
     
     /* ack the event */
     // routing 완료
-    printf("Acknowledge the CM event(routing resolved)...\n\n")
+    printf("Acknowledge the CM event(routing resolved)...\n\n");
     ret = rdma_ack_cm_event(event);
     if (ret) {
         perror("rdma_ack_cm_event");
@@ -148,13 +158,15 @@ static int setup_connection(struct sockaddr_in *addr) {
 //QP 실험해보고 삭제하던가
 static int connect_server() {
 
+    int ret = -1;
+
     struct rdma_conn_param conn_param = {
 		.initiator_depth = 3; //The maximum number of outstanding RDMA read and atomic operations
 		.responder_resources = 3;
 		.retry_count = 3; // if fail, then how many times to retry
-	}
+	};
 
-    memset(&conn_param, 0, sizeof(conn_param);)
+    memset(&conn_param, 0, sizeof(conn_param));
 
     printf("Connecting...\n");
     ret = rdma_connect(id, &conn_param);
@@ -166,7 +178,7 @@ static int connect_server() {
 
     /* CM (Connection Manager) event channel에서 RDMA_CM_EVENT_ESTABLISHED event 수신*/
     //RDMA_CM_EVENT_ESTABLISHED 이벤트 대기
-    printf("RDMA_CM_EVENT_ESTABLISHED event...\n")
+    printf("RDMA_CM_EVENT_ESTABLISHED event...\n");
     ret = rdma_get_cm_event(ec, &event);
     if (ret) {
         perror("rdma_get_cm_event");
@@ -175,7 +187,7 @@ static int connect_server() {
     printf("Connection established.\n");
     
     /* ack the event */
-    printf("Acknowledge the CM event...\n\n")
+    printf("Acknowledge the CM event...\n\n");
     ret = rdma_ack_cm_event(event);
     if (ret) {
         perror("rdma_ack_cm_event");
@@ -191,7 +203,7 @@ static int connect_server() {
     // 과연 출력을 할까...?
     printf("Queue pair: %p\n", event->id->qp); // id? event->id?
 
-    return 0;
+    return ret;
 }
 
 int on_connection()
@@ -203,20 +215,20 @@ int on_connection()
 		printf("Enter command (put <key> <value> /get <key>): ");
     	scanf("%s", command);
 
-		memcpy(ctx->send_buffer,&msg_send,sizeof(struct message));
+		memcpy(ctx.send_buffer,&msg_send,sizeof(struct message));
 
 		if (strcmp(command, "put") == 0) {
-            scanf("%s %s", key, value);
+            scanf("%s %s", msg_send.kv.key, msg_send.kv.value);
             send_put(id, msg_send);
         } else if (strcmp(command, "get") == 0) {
-            scanf("%s", key);
+            scanf("%s", msg_send.kv.key);
             send_get(id, msg_send);
         } else {
             printf("Invalid command  \n");
         }
 	}
 
-	return ret;
+	return 0;
 }
 
 // put
@@ -270,6 +282,6 @@ void send_get(struct rdma_cm_id *id, struct message msg_send) {
         fprintf(stderr, "GET ibv_post_send error. \n");
     }
 
-	recv_msg(ctx);
+	recv_msg(&ctx);
 }
 
