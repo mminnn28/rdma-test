@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
     };
 
 	
-    memset(&addr, 0, sizeof(addr)); // 구조체를 모두 '0'으로 초기화
+    //memset(&addr, 0, sizeof(addr)); // 구조체를 모두 '0'으로 초기화
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
