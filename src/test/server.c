@@ -1,21 +1,20 @@
 #include "common.h"
 
 /* These are RDMA connection related resources */
-static struct rdma_context ctx;
+static struct rdma_context ctx = {0};
 static struct rdma_cm_id *id = NULL;
 static struct rdma_event_channel *ec = NULL;
 static struct rdma_cm_event *event = NULL;
 static struct ibv_qp_init_attr *qp_attr;
 
-#define KV_STORE_SIZE 1024
-
 struct kv_store {
     char key[KEY_VALUE_SIZE];
     char value[KEY_VALUE_SIZE];
-} kv_store[KV_STORE_SIZE];
+} kv_store[KEY_VALUE_SIZE];
 
 void setup_connection(struct sockaddr_in *addr);
-int on_event(struct rdma_cm_event * event);
+int on_event();
+
 void on_connect(struct rdma_cm_id *id);
 void on_complete(struct ibv_wc *wc);
 int on_disconnect(struct rdma_cm_id * id);
@@ -23,13 +22,11 @@ int on_disconnect(struct rdma_cm_id * id);
 
 int main(int argc, char **argv) {
 
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET, // IPv4
-        .sin_port = htons(SERVER_PORT), // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
-        .sin_addr.s_addr =  htonl(INADDR_ANY) // 서버의 IP 주소를 network byte order로 변환
-    };
-
-    //memset(&addr, 0, sizeof(addr));
+    struct sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET; 
+    addr.sin_port = htons(SERVER_PORT);
+	addr.sin_addr.s_addr = htonl(INADDR_ANY); 
 
     setup_connection(&addr);
     return 0;
@@ -64,59 +61,72 @@ void setup_connection(struct sockaddr_in *addr) {
         exit(EXIT_FAILURE);
     }
 
-    //printf("Server listening on port %d...\n", SERVER_PORT);
-
-    printf("Server is listening successfully at: %s , port: %d \n", inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
+    printf("Server listening on port %d...\n", SERVER_PORT);
 
     while (1) {
-        //RDMA_CM_EVENT_CONNECT_REQUEST
+        //add generate a RDMA_CM_EVENT_CONNECT_REQUEST
+        //printf("RDMA_CM_EVENT_CONNECT_REQUEST event...\n");
         ret = rdma_get_cm_event(ec, &event);
         if (ret) {
             perror("rdma_get_cm_event");
             exit(EXIT_FAILURE);
         }
+
         id = event->id;
 
-        //successful get and ack should be one-to-one correspondence.
-		struct rdma_cm_event event_copy;
-		memcpy(&event_copy,event,sizeof(*event));
-     
-        if (rdma_ack_cm_event(event)) {
-		    rdma_error("Failed to acknowledge the cm event errno: %d \n", -errno);
-		    return -errno;
-	    }
-
-        //on_event hold on the retrieved event.
-		if(on_event(&event_copy)) {
+        if(on_event(id)) {
 			break;
 		}
+    
+        if (rdma_ack_cm_event(event)) {
+		    perror("rdma_ack_cm_event");
+            exit(EXIT_FAILURE);
+	    }
     }
 }
 
-int on_event(struct rdma_cm_event * event)
-{
+//disconnected 수정해야됨
+int on_event() {
+    
+    struct rdma_conn_param params;
+
 	printf("event type: %s.\n",rdma_event_str(event->event));
     int ret = 0;
 
-	if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST)
-	{
-		printf("connect request.\n");
+	if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
+		
+        //printf("Connect request.\n");
 
-        struct rdma_cm_id *client_id = event->id;
-        build_context(&ctx);
+        /* RDMA resource & QP attr (common.c) */
+        build_context(&ctx, id);
         build_qp_attr(&qp_attr, &ctx);
-        rdma_create_qp(client_id, ctx.pd, &qp_attr);
-        rdma_accept(id, NULL);
+        
+
+        /* creating QP */
+        printf("Creating QP...\n");
+        ret = rdma_create_qp(id, ctx.pd, &qp_attr);
+        if (ret) {
+            perror("rdma_create_qp");
+            exit(EXIT_FAILURE);
+        }
+
+        memset(&params, 0, sizeof(params));
+        params.initiator_depth = 3;
+        params.responder_resources = 3;
+
+        printf("Connecting...\n\n");
+        ret = rdma_accept(id, &params);
+        if (ret) {
+	        perror("rdma_accept");
+            exit(EXIT_FAILURE);
+        }
+
+	} else if(event->event == RDMA_CM_EVENT_ESTABLISHED) {
+		printf("Connect established.\n");
+        on_connect(id);
 	}
-	else if(event->event == RDMA_CM_EVENT_ESTABLISHED)
-	{
-		printf("connect established.\n");
-        on_connect(event->id);
-	}
-	else if(event->event == RDMA_CM_EVENT_DISCONNECTED)
-	{
+	else if(event->event == RDMA_CM_EVENT_DISCONNECTED) {
 		printf("disconnected.\n");
-       
       
         ibv_destroy_cq(ctx.cq);
         ibv_destroy_comp_channel(ctx.comp_channel);
@@ -125,20 +135,17 @@ int on_event(struct rdma_cm_event * event)
 
 		ret = on_disconnect(event->id);
 	}
-	else
-	{
-		printf("on_event: unknown event.\n");
-	}
 
 	return ret;
 }
 
 void on_connect(struct rdma_cm_id *id) {
-    printf("Client connected.\n");
-    struct rdma_context *ctx = (struct rdma_context *)id->context;
-    recv_msg(&ctx);
+    printf("Client connected.\n\n");
 
-    rdma_ack_cm_event(event);
+
+    struct rdma_context *ctx = (struct rdma_context *)id->context;
+
+    
     while (1) {
         struct ibv_wc wc;
         int num_completions = ibv_poll_cq(ctx->cq, 1, &wc);
@@ -156,7 +163,7 @@ void on_complete(struct ibv_wc *wc) {
         if (msg->type == MSG_PUT) {
             // PUT 요청 처리
             int i;
-            for (i = 0; i < KV_STORE_SIZE; i++) {
+            for (i = 0; i < KEY_VALUE_SIZE; i++) {
                 if (kv_store[i].key[0] == '\0' || strcmp(kv_store[i].key, msg->kv.key) == 0) {
                     strcpy(kv_store[i].key, msg->kv.key);
                     strcpy(kv_store[i].value, msg->kv.value);
@@ -168,7 +175,7 @@ void on_complete(struct ibv_wc *wc) {
         } else if (msg->type == MSG_GET) {
             // GET 요청 처리
             int i;
-            for (i = 0; i < KV_STORE_SIZE; i++) {
+            for (i = 0; i < KEY_VALUE_SIZE; i++) {
                 if (strcmp(kv_store[i].key, msg->kv.key) == 0) {
                     strcpy(msg->kv.value, kv_store[i].value);
                     msg->addr = (uint64_t)&kv_store[i];
@@ -192,7 +199,7 @@ void on_complete(struct ibv_wc *wc) {
         wr.num_sge = 1;
 
         ibv_post_send(ctx->qp, &wr, &bad_wr);
-        recv_msg(&ctx);
+        recv_msg(ctx);
     }
 }
 
