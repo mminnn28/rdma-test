@@ -1,7 +1,7 @@
 #include "common.h"
 
 /* These are RDMA connection related resources */
-static struct rdma_context ctx;
+static struct rdma_context ctx = {0};
 static struct rdma_cm_id *id = NULL;
 static struct rdma_event_channel *ec = NULL;
 static struct rdma_cm_event *event = NULL;
@@ -9,33 +9,27 @@ static struct ibv_qp_init_attr *qp_attr;
 
 // Function prototypes
 static int setup_connection(struct sockaddr_in *addr);
-static int pre_post_recv_buffer();
 static int connect_server();
-int on_connection();
+
+int on_connect();
 void send_put(struct rdma_cm_id * id, struct message msg_send);
 void send_get(struct rdma_cm_id *id, struct message msg_send);
 
 
 int main(int argc, char **argv) {
 
-    /* 서버 구조체 설정*/
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET, // IPv4
-        .sin_port = htons(SERVER_PORT), // 서버의 포트번호(20079) htons를 통해 byte order를 network order로 변환
-        .sin_addr.s_addr = inet_addr(argv[1]) // 서버의 IP 주소를 network byte order로 변환
-    };
-
+    struct sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET; 
+    addr.sin_port = htons(SERVER_PORT);
+	addr.sin_addr.s_addr = inet_addr(argv[1]); 
 	
-    //memset(&addr, 0, sizeof(addr)); // 구조체를 모두 '0'으로 초기화
-
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
         return 1;
     }
 
     int ret;
-
-    getaddrinfo(argv[1], SERVER_PORT, NULL, &addr);
     
     ret = setup_connection(&addr);
     if (ret) { 
@@ -47,7 +41,7 @@ int main(int argc, char **argv) {
 		rdma_error("Failed to connect server , ret = %d \n", ret);
 		return ret;
 	}
-	ret = on_connection();
+	ret = on_connect();
     if (ret) { 
 		rdma_error("Failed to connect , ret = %d \n", ret);
 		return ret;
@@ -73,8 +67,8 @@ static int setup_connection(struct sockaddr_in *addr) {
     int ret;
 
     /*  Open a channel used to report asynchronous communication event */
-    // 이벤트를 수신할 채널을 작성
-    printf("Creating event channel...\n");
+    // 이벤트를 수신할 채널
+    //printf("Creating event channel...\n");
     ec = rdma_create_event_channel();
     if (!ec) {
         perror("rdma_create_event_channel");
@@ -83,7 +77,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* rdma_cm_id is the connection identifier (like socket) which is used to define an RDMA connection. */
     // ID를 할당
-    printf("Creating RDMA identifier...\n");
+    //printf("Creating RDMA identifier...\n");
     ret = rdma_create_id(ec, &id, NULL, RDMA_PS_TCP);
     if (ret) {
         perror("rdma_create_id");
@@ -92,8 +86,8 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* RDMA 연결을 위한 주어진 주소를 해석하고 RDMA 연결을 설정하기 위한 초기 작업 */
     // 로컬 RDMA 장치를 확보하여 remote 주소에 도달
-    printf("Resolving address...\n");
-    ret = rdma_resolve_addr(id, NULL, (struct sockaddr *)&addr, TIMEOUT_IN_MS);
+    //printf("Resolving address...\n");
+    ret = rdma_resolve_addr(id, NULL, (struct sockaddr *)addr, TIMEOUT_IN_MS);
     if (ret) {
         perror("rdma_resolve_addr");
         exit(EXIT_FAILURE);
@@ -101,7 +95,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* CM (Connection Manager) event channel에서 RDMA_CM_EVENT_ADDR_RESOLVED event 수신*/
     //RDMA_CM_EVENT_ADDR_RESOLVED 이벤트 대기
-    printf("RDMA_CM_EVENT_ADDR_RESOLVED event...\n");
+    //printf("RDMA_CM_EVENT_ADDR_RESOLVED event...\n");
     ret = rdma_get_cm_event(ec, &event);
     if (ret) {
         perror("rdma_get_cm_event");
@@ -110,17 +104,19 @@ static int setup_connection(struct sockaddr_in *addr) {
     
     /* ack the event */
     // 클라이언트가 서버의 IP 주소를 기반으로 RDMA 주소를 성공적으로 얻음
-    printf("Acknowledge the CM event(address resolved)...\n");
+    //printf("Acknowledge the CM event(address resolved)...\n");
     ret = rdma_ack_cm_event(event);
     if (ret) {
         perror("rdma_ack_cm_event");
         exit(EXIT_FAILURE);
     }
 
-    /* creating QP */
-    build_context(&ctx); //RDMA 자원 초기화
+    /* RDMA resource & QP attr (common.c) */
+    build_context(&ctx, id);
     build_qp_attr(&qp_attr, &ctx);
-    printf("Creating QP...\n\n");
+
+    /* creating QP */
+    printf("Creating QP...\n");
     ret = rdma_create_qp(id, ctx.pd, &qp_attr);
     if (ret) {
         perror("rdma_create_qp");
@@ -129,7 +125,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* Resolves an RDMA route to the destination address in order to establish a connection */
     //주소가 성공적으로 해결된 후, RDMA CM이 서버로의 경로를 해결하도록 요청
-    printf("Resolving routing...\n");
+    //printf("Resolving routing...\n");
     ret = rdma_resolve_route(id, 2000);
     if (ret) {
         perror("rdma_resolve_route");
@@ -138,7 +134,7 @@ static int setup_connection(struct sockaddr_in *addr) {
 
     /* CM (Connection Manager) event channel에서 RDMA_CM_EVENT_ROUTE_RESOLVED event 수신*/
     //RDMA_CM_EVENT_ROUTE_RESOLVED 이벤트 대기
-    printf("RDMA_CM_EVENT_ROUTE_RESOLVED event...\n");
+    //printf("RDMA_CM_EVENT_ROUTE_RESOLVED event...\n");
     ret = rdma_get_cm_event(ec, &event);
     if (ret) {
         perror("rdma_get_cm_event");
@@ -147,7 +143,7 @@ static int setup_connection(struct sockaddr_in *addr) {
     
     /* ack the event */
     // routing 완료
-    printf("Acknowledge the CM event(routing resolved)...\n\n");
+    //printf("Acknowledge the CM event(routing resolved)...\n\n");
     ret = rdma_ack_cm_event(event);
     if (ret) {
         perror("rdma_ack_cm_event");
@@ -157,18 +153,15 @@ static int setup_connection(struct sockaddr_in *addr) {
     return 0;
 }
 
-//QP 실험해보고 삭제하던가
 static int connect_server() {
 
     int ret = -1;
 
-    struct rdma_conn_param conn_param = {
-		.initiator_depth = 3, //The maximum number of outstanding RDMA read and atomic operations
-		.responder_resources = 3,
-		.retry_count = 3 // if fail, then how many times to retry
-	};
-
+    struct rdma_conn_param conn_param;
     memset(&conn_param, 0, sizeof(conn_param));
+    conn_param.initiator_depth = 3;
+	conn_param.responder_resources = 3;
+	conn_param.retry_count = 3; 
 
     printf("Connecting...\n");
     ret = rdma_connect(id, &conn_param);
@@ -176,11 +169,9 @@ static int connect_server() {
         perror("rdma_connect");
         exit(EXIT_FAILURE);
     }
-    printf("Connection initiated.\n");
 
-    /* CM (Connection Manager) event channel에서 RDMA_CM_EVENT_ESTABLISHED event 수신*/
-    //RDMA_CM_EVENT_ESTABLISHED 이벤트 대기
-    printf("RDMA_CM_EVENT_ESTABLISHED event...\n");
+    /* CM (Connection Manager) event channel (RDMA_CM_EVENT_ESTABLISHED event)*/
+    //printf("RDMA_CM_EVENT_ESTABLISHED event...\n");
     ret = rdma_get_cm_event(ec, &event);
     if (ret) {
         perror("rdma_get_cm_event");
@@ -189,32 +180,24 @@ static int connect_server() {
     printf("Connection established.\n");
     
     /* ack the event */
-    printf("Acknowledge the CM event...\n\n");
+    //printf("Acknowledge the CM event...\n\n");
     ret = rdma_ack_cm_event(event);
     if (ret) {
         perror("rdma_ack_cm_event");
         exit(EXIT_FAILURE);
     }
-    printf("The client is connected successfully \n");
-
-    //여기는 출력이 안되면 걍 생략하는 걸로
-    if (!event->id->qp) {
-        printf("Queue pair is NULL\n");
-        exit(EXIT_FAILURE);
-    }
-    // 과연 출력을 할까...?
-    printf("Queue pair: %p\n", event->id->qp); // id? event->id?
+    printf("The client is connected successfully. \n\n");
 
     return ret;
 }
 
-int on_connection()
+int on_connect()
 {
 	while(1) {
 		char command[256];
 		struct message msg_send;
 
-		printf("Enter command (put <key> <value> /get <key>): ");
+		printf("Enter command ( put <key> <value> / get <key> ): ");
     	scanf("%s", command);
 
 		memcpy(ctx.send_buffer,&msg_send,sizeof(struct message));
