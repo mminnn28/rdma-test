@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
         .sin_addr.s_addr =  htonl(INADDR_ANY) // 서버의 IP 주소를 network byte order로 변환
     };
 
-    memset(&addr, 0, sizeof(addr));
+    //memset(&addr, 0, sizeof(addr));
 
     setup_connection(&addr);
     return 0;
