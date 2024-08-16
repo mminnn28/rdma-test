@@ -37,7 +37,7 @@ void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx) {
 }
 
 // 메모리 버퍼 할당 및 등록
-void ibv_mr* rdma_buffer(struct rdma_context *ctx) {
+struct ibv_mr* rdma_buffer(struct rdma_context *ctx) {
     
 	enum ibv_access_flags permission = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
 
