@@ -14,6 +14,7 @@
 #define BUFFER_SIZE (KEY_VALUE_SIZE * 2)
 #define SERVER_PORT 20079
 
+#define TIMEOUT_IN_MS 500
 
 /* Capacity of the completion queue (CQ) */
 #define CQ_CAPACITY (16)
@@ -61,10 +62,11 @@ struct rdma_context {
 // Function prototypes
 void build_context(struct rdma_context *ctx);
 void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx);
-struct void rdma_buffer(struct rdma_context *ctx);
+void ibv_mr* rdma_buffer(struct rdma_context *ctx);
 void recv_msg(struct rdma_context *ctx);
 void * poll_send_cq(void * context);
 void * poll_recv_cq(void * context);
 int on_completion(struct ibv_wc *wc);
 
 #endif // COMMON_H
+
