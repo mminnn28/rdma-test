@@ -4,9 +4,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <rdma/rdma_cma.h>
 #include <rdma/rdma_verbs.h>
+
+// #include <endian.h>
+// #if __BYTE_ORDER == __BIG_ENDIAN
+// #define htonll(x) (x)
+// #define ntohll(x) (x)
+// #else
+// #define htonll(x) __builtin_bswap64(x)
+// #define ntohll(x) __builtin_bswap64(x)
+// #endif //endian.h
 
 /* Error Macro*/
 #define rdma_error(msg, args...) do {\
@@ -21,12 +32,14 @@
 #define CQ_CAPACITY 16
 #define MAX_SGE 1
 #define MAX_WR 16
+#define MAX_KEYS 256
 
 // Define message types
 enum msg_type {
     MSG_PUT,
     MSG_GET
 };
+
 
 struct kv_pair {
     char key[KEY_VALUE_SIZE];
@@ -39,6 +52,18 @@ struct message {
     uint64_t addr; 
 };
 
+
+struct __attribute((packed)) rdma_buffer_attr {
+  uint64_t address;
+  uint32_t length;
+  union stag {
+	  /* if we send, we call it local stags */
+	  uint32_t local_stag;
+	  /* if we receive, we call it remote stag */
+	  uint32_t remote_stag;
+  }stag;
+};
+
 // RDMA context structure
 struct rdma_context {
     struct ibv_device *device;
@@ -47,25 +72,12 @@ struct rdma_context {
     struct ibv_comp_channel *comp_channel;
     struct ibv_cq *cq;
     struct ibv_qp *qp;
-    
-    struct ibv_mr * send_mr;
-	struct ibv_mr * recv_mr;
-
-    char *send_buffer;
-	char *recv_buffer;
-
-    pthread_t poll_send_thread;
-    pthread_t poll_recv_thread;
+    struct ibv_mr *send_mr, *recv_mr;
 };
 
 // Function prototypes
 void build_context(struct rdma_context *ctx, struct rdma_cm_id *id);
 void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx);
-struct ibv_mr* rdma_buffer(struct rdma_context *ctx);
-void recv_msg(struct rdma_context *ctx);
-void * poll_send_cq(void * context);
-void * poll_recv_cq(void * context);
-int on_completion(struct ibv_wc *wc);
+void cleanup(struct rdma_cm_id *id);
 
 #endif // COMMON_H
-
