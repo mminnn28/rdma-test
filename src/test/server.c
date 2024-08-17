@@ -17,7 +17,6 @@ static void setup_connection();
 static int handle_event();
 static void on_connect(struct rdma_cm_id *id);
 static void pre_post_recv_buffer();
-static void cleanup(struct rdma_cm_id *id);
 static void process_message(struct message *msg);
 static char *send_buffer = NULL, *recv_buffer = NULL;
 
@@ -68,6 +67,14 @@ static void setup_connection() {
         if (rdma_get_cm_event(ec, &event)) {
             perror("rdma_get_cm_event");
             cleanup(id);
+            if (send_buffer) {
+                free(send_buffer);
+                send_buffer = NULL;
+            }
+            if (recv_buffer) {
+                free(recv_buffer);
+                recv_buffer = NULL;
+            }
             exit(EXIT_FAILURE);
         }
 
@@ -81,6 +88,14 @@ static void setup_connection() {
         if (rdma_ack_cm_event(event)) {
             perror("rdma_ack_cm_event");
             cleanup(id);
+            if (send_buffer) {
+                free(send_buffer);
+                send_buffer = NULL;
+            }
+            if (recv_buffer) {
+                free(recv_buffer);
+                recv_buffer = NULL;
+            }
             exit(EXIT_FAILURE);
         }
     }
@@ -96,12 +111,20 @@ static int handle_event() {
 		printf("connect established.\n");
 
 		// Process messages from RDMA
-        struct message *msg = (struct message *)ctx.buf;
+        struct message *msg = (struct message *)recv_buffer;
         process_message(msg);
 	}else if (event->event == RDMA_CM_EVENT_DISCONNECTED) {
         printf("Disconnected from client.\n");
         cleanup(id);
-        return 1;
+        if (send_buffer) {
+            free(send_buffer);
+            send_buffer = NULL;
+        }
+        if (recv_buffer) {
+            free(recv_buffer);
+            recv_buffer = NULL;
+        }
+        exit(EXIT_FAILURE);
     }
 
     return 0;
@@ -138,36 +161,33 @@ static void on_connect(struct rdma_cm_id *id) {
 }
 static void pre_post_recv_buffer() {
     int ret = -1;
-    ctx.buf = (char *)malloc(BUFFER_SIZE);
-    if (!ctx.buf) {
+    recv_buffer = (char *)malloc(BUFFER_SIZE);
+    if (!recv_buffer) {
         perror("Failed to allocate memory for receive buffer");
         exit(EXIT_FAILURE);
     }
 
-    ctx.recv_mr = ibv_reg_mr(ctx.pd, ctx.buf, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE);
+    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE);
     if (!ctx.recv_mr) {
         perror("Failed to register receive memory region");
         exit(EXIT_FAILURE);
     }
 
-    recv_sge.addr = (uint64_t)ctx.buf;
+    recv_sge.addr = (uint64_t)recv_buffer;
     recv_sge.length = BUFFER_SIZE;
     recv_sge.lkey = ctx.recv_mr->lkey;
 
     memset(&recv_wr, 0, sizeof(recv_wr));
     recv_wr.sg_list = &recv_sge;
     recv_wr.num_sge = 1;
-    recv_wr.wr_id = (uintptr_t)id;
-    recv_wr.next = NULL;
 
-    ret = ibv_post_recv(id->qp, &recv_wr, &bad_recv_wr);
-    printf("ibv_post_recv success.\n");
+    ret = ibv_post_recv(ctx.qp, &recv_wr, &bad_recv_wr);
     if (ret) {
         perror("Failed to post receive work request");
         exit(EXIT_FAILURE);
     }
 
-    printf("Memory registered at address %p with RKey %u\n", ctx.buf, ctx.recv_mr->rkey);
+    printf("Memory registered at address %p with LKey %u\n", recv_buffer, ctx.recv_mr->lkey);
 }
 
 static void process_message(struct message *msg) {
@@ -214,52 +234,7 @@ static void process_message(struct message *msg) {
     }
 }
 
-static void cleanup(struct rdma_cm_id *id) {
-    if (ctx.buf) {
-        free(ctx.buf);
-        ctx.buf = NULL;
-    }
 
-    if (ctx.recv_mr) {
-        ibv_dereg_mr(ctx.recv_mr);
-        ctx.recv_mr = NULL;
-    }
-
-    if (ctx.send_mr) {
-        ibv_dereg_mr(ctx.send_mr);
-        ctx.send_mr = NULL;
-    }
-
-    if (ctx.qp) {
-        rdma_destroy_qp(id);
-        ctx.qp = NULL;
-    }
-
-    if (ctx.cq) {
-        ibv_destroy_cq(ctx.cq);
-        ctx.cq = NULL;
-    }
-
-    if (ctx.comp_channel) {
-        ibv_destroy_comp_channel(ctx.comp_channel);
-        ctx.comp_channel = NULL;
-    }
-
-    if (ctx.pd) {
-        ibv_dealloc_pd(ctx.pd);
-        ctx.pd = NULL;
-    }
-
-    if (id) {
-        rdma_destroy_id(id);
-        id = NULL;
-    }
-
-    if (ec) {
-        rdma_destroy_event_channel(ec);
-        ec = NULL;
-    }
-}
 /*
 ./server
 Listening for incoming connections...
