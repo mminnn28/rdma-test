@@ -18,7 +18,6 @@ static void connect_server();
 void post_send_message(struct message *msg);
 void receive_response();
 int on_connect();
-static void cleanup(struct rdma_cm_id *id);
 
 int main(int argc, char **argv) {
     if (argc != 2) {
@@ -282,40 +281,6 @@ int on_connect() {
     }
 
     cleanup(id);
-    return 0;
-}
-
-static void cleanup(struct rdma_cm_id *id) {
-    if (ctx.send_mr) {
-        ibv_dereg_mr(ctx.send_mr);
-        ctx.send_mr = NULL;
-    }
-
-    if (ctx.recv_mr) {
-        ibv_dereg_mr(ctx.recv_mr);
-        ctx.recv_mr = NULL;
-    }
-
-    if (ctx.qp) {
-        rdma_destroy_qp(id);
-        ctx.qp = NULL;
-    }
-
-    if (ctx.cq) {
-        ibv_destroy_cq(ctx.cq);
-        ctx.cq = NULL;
-    }
-
-    if (ctx.comp_channel) {
-        ibv_destroy_comp_channel(ctx.comp_channel);
-        ctx.comp_channel = NULL;
-    }
-
-    if (ctx.pd) {
-        ibv_dealloc_pd(ctx.pd);
-        ctx.pd = NULL;
-    }
-
     if (send_buffer) {
         free(send_buffer);
         send_buffer = NULL;
@@ -324,16 +289,7 @@ static void cleanup(struct rdma_cm_id *id) {
         free(recv_buffer);
         recv_buffer = NULL;
     }
-
-    if (id) {
-        rdma_destroy_id(id);
-        id = NULL;
-    }
-
-    if (ec) {
-        rdma_destroy_event_channel(ec);
-        ec = NULL;
-    }
+    return 0;
 }
 
 
