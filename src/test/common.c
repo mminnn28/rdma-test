@@ -54,4 +54,46 @@ void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx) {
     attr->sq_sig_all = 0;
 }
 
+void cleanup(struct rdma_cm_id *id) {
+
+    if (ctx.recv_mr) {
+        ibv_dereg_mr(ctx.recv_mr);
+        ctx.recv_mr = NULL;
+    }
+
+    if (ctx.send_mr) {
+        ibv_dereg_mr(ctx.send_mr);
+        ctx.send_mr = NULL;
+    }
+
+    if (ctx.qp) {
+        rdma_destroy_qp(id);
+        ctx.qp = NULL;
+    }
+
+    if (ctx.cq) {
+        ibv_destroy_cq(ctx.cq);
+        ctx.cq = NULL;
+    }
+
+    if (ctx.comp_channel) {
+        ibv_destroy_comp_channel(ctx.comp_channel);
+        ctx.comp_channel = NULL;
+    }
+
+    if (ctx.pd) {
+        ibv_dealloc_pd(ctx.pd);
+        ctx.pd = NULL;
+    }
+
+    if (id) {
+        rdma_destroy_id(id);
+        id = NULL;
+    }
+
+    if (ec) {
+        rdma_destroy_event_channel(ec);
+        ec = NULL;
+    }
+}
 
