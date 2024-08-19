@@ -363,30 +363,3 @@ Segmentation fault
 
 
  */
-
-
-/**
- * ./server
-Listening for incoming connections...
-Event type: RDMA_CM_EVENT_CONNECT_REQUEST
-Connection request received.
-
-Creating QP...
-Queue Pair created: 0x55ae9dbad2c8
-
-Memory registered at address 0x55ae9dbadbf0 with LKey 293464
-
-Memory registered at address (nil) with LKey 0
-
-Connection accepted.
-
-Event type: RDMA_CM_EVENT_ESTABLISHED
-connect established.
-
-check_notify_before_using_rdma_write ended
-Received client Memory at address (nil) with LKey 0
-
-Received message - Type: -546312992, Key: , Value: 
-Segmentation fault
-
- */
