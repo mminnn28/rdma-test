@@ -7,7 +7,7 @@ static struct rdma_event_channel *ec = NULL;
 static struct rdma_cm_event *event = NULL;
 static struct ibv_qp_init_attr qp_attr;
 
-static struct pdata server_pdata;
+static struct pdata client_pdata, server_pdata;
 
 struct ibv_recv_wr recv_wr, *bad_recv_wr = NULL;
 struct ibv_send_wr send_wr, *bad_send_wr = NULL;
@@ -87,6 +87,7 @@ static void setup_connection(const char *server_ip) {
         perror("rdma_create_qp");
         exit(EXIT_FAILURE);
     }
+    printf("Queue Pair created: %p\n\n", (void*)id->qp);
     ctx.qp = id->qp;
 
     ret = rdma_resolve_route(id, TIMEOUT_IN_MS);
@@ -143,13 +144,15 @@ static void connect_server() {
     int ret = -1;
     struct rdma_conn_param conn_param;
 
-    server_pdata.buf_va = (uintptr_t)recv_buffer;
-    server_pdata.buf_rkey = htonl(ctx.recv_mr->rkey);
+    client_pdata.buf_va = (uintptr_t)recv_buffer;
+    client_pdata.buf_rkey = htonl(ctx.recv_mr->rkey);
 
     memset(&conn_param, 0, sizeof(conn_param));
     conn_param.initiator_depth = 3;
     conn_param.responder_resources = 3;
     conn_param.retry_count = 3;
+    conn_param.private_data = &client_pdata; 
+    conn_param.private_data_len = sizeof(client_pdata);
 
     printf("Connecting...\n");
     ret = rdma_connect(id, &conn_param);
@@ -166,6 +169,7 @@ static void connect_server() {
     printf("Connection established.\n");
 
     memcpy(&server_pdata,event->param.conn.private_data,sizeof(server_pdata));
+    printf("Received Server Memory at address %p with LKey %u\n\n",(void *)server_pdata.buf_va, ntohl(server_pdata.buf_rkey));
 
     ret = rdma_ack_cm_event(event);
     if (ret) {
@@ -192,7 +196,7 @@ int on_connect() {
         exit(EXIT_FAILURE);
     }
 
-    printf("Received Server Memory at address %p with LKey %u\n\n",(void *)server_pdata.buf_va, server_pdata.buf_rkey);
+    //printf("Received Server Memory at address %p with LKey %u\n\n",(void *)server_pdata.buf_va, ntohl(server_pdata.buf_rkey));
 
     while (1) {
         printf("Enter command ( put k v / get k ): ");
@@ -448,12 +452,14 @@ void cleanup(struct rdma_cm_id *id) {
 /*
 ./client 10.10.1.2
 Creating QP...
-Memory registered at address 0x563dc8ac78c0 with LKey 270592
+Queue Pair created: 0x55f6de161018
+
+Memory registered at address 0x55f6de1618c0 with LKey 143633
 Connecting...
 Connection established.
-The client is connected successfully. 
+Received Server Memory at address 0x5647122269e0 with LKey 127143
 
-Received Server Memory at address 0x55ae9dbadbf0 with LKey 1484391424
+The client is connected successfully. 
 
 Enter command ( put k v / get k ): put a b
 msg key: a, msg value: b
