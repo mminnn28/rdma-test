@@ -10,14 +10,14 @@
 #include <rdma/rdma_cma.h>
 #include <rdma/rdma_verbs.h>
 
-// #include <endian.h>
-// #if __BYTE_ORDER == __BIG_ENDIAN
-// #define htonll(x) (x)
-// #define ntohll(x) (x)
-// #else
-// #define htonll(x) __builtin_bswap64(x)
-// #define ntohll(x) __builtin_bswap64(x)
-// #endif //endian.h
+#include <endian.h>
+#if __BYTE_ORDER == __BIG_ENDIAN
+#define htonll(x) (x)
+#define ntohll(x) (x)
+#else
+#define htonll(x) __builtin_bswap64(x)
+#define ntohll(x) __builtin_bswap64(x)
+#endif //endian.h
 
 static inline uint64_t bswap_64(uint64_t x) {
     return ((x & 0x00000000000000FFULL) << 56) |
@@ -68,18 +68,6 @@ struct message {
     uint64_t addr; 
 };
 
-
-struct __attribute((packed)) rdma_buffer_attr {
-  uint64_t address;
-  uint32_t length;
-  union stag {
-	  /* if we send, we call it local stags */
-	  uint32_t local_stag;
-	  /* if we receive, we call it remote stag */
-	  uint32_t remote_stag;
-  }stag;
-};
-
 // RDMA context structure
 struct rdma_context {
     struct ibv_device *device;
@@ -97,4 +85,3 @@ void build_context(struct rdma_context *ctx, struct rdma_cm_id *id);
 void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx);
 
 #endif // COMMON_H
-
