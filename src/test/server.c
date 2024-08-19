@@ -64,7 +64,7 @@ static void setup_connection() {
         exit(EXIT_FAILURE);
     }
 
-    printf("Listening for incoming connections...\n");
+    printf("Listening for incoming connections...\n\n");
 
     while (1) {
         /* Wait for an event */
@@ -86,7 +86,6 @@ static void setup_connection() {
         }
     }
 }
-
 static int handle_event() {
 
     printf("Event type: %s\n", rdma_event_str(event->event));
@@ -96,6 +95,7 @@ static int handle_event() {
         on_connect();
     } else if(event->event == RDMA_CM_EVENT_ESTABLISHED) {
 		printf("connect established.\n\n");
+        id = event->id;
         process_message();
     } else if (event->event == RDMA_CM_EVENT_DISCONNECTED) {
         printf("Disconnected from client.\n");
@@ -111,22 +111,6 @@ static void on_connect() {
 
     /* Allocate resources */
     build_context(&ctx, id);
-    
-    recv_buffer = (char *)malloc(BUFFER_SIZE);
-    if (!recv_buffer) {
-        perror("Failed to allocate memory for receive buffer");
-        exit(EXIT_FAILURE);
-    }
-
-    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, 
-            IBV_ACCESS_LOCAL_WRITE | 
-            IBV_ACCESS_REMOTE_READ | 
-            IBV_ACCESS_REMOTE_WRITE);
-    if (!ctx.recv_mr) {
-        perror("Failed to register receive memory region");
-        exit(EXIT_FAILURE);
-    }
-
     build_qp_attr(&qp_attr, &ctx);
 
     printf("Creating QP...\n");
@@ -142,7 +126,9 @@ static void on_connect() {
     rep_pdata.buf_rkey = htonl(ctx.recv_mr->rkey);
 
     memset(&conn_param, 0, sizeof(conn_param));
-	conn_param.responder_resources = 1;  
+	conn_param.initiator_depth = 3;
+    conn_param.responder_resources = 3;
+    conn_param.retry_count = 3;
     conn_param.private_data = &rep_pdata; 
     conn_param.private_data_len = sizeof(rep_pdata);
 
@@ -150,11 +136,10 @@ static void on_connect() {
         perror("rdma_accept");
         exit(EXIT_FAILURE);
     }
+    printf("Connection accepted.\n\n");
     
     memcpy(&rep_pdata,event->param.conn.private_data,sizeof(rep_pdata));
-    printf("Memory registered at address %p with LKey %u\n\n", rep_pdata.buf_va, rep_pdata.buf_rkey);
-
-    printf("Connection accepted.\n\n");
+    printf("Received client Memory at address %p with LKey %u\n", (void *)rep_pdata.buf_va, ntohl(rep_pdata.buf_rkey));
 }
 
 static int pre_post_recv_buffer() {
@@ -224,7 +209,7 @@ static int check_notify_before_using_rdma_write()
 
 static void process_message() {
 
-
+    //memcpy(&rep_pdata,event->param.conn.private_data,sizeof(rep_pdata));
 
     /* we need to check IBV_WR_RDMA_WRITE is done, so we post_recv at first */
     // if (pre_post_recv_buffer())
@@ -245,9 +230,6 @@ static void process_message() {
         fprintf(stderr, "Failed to register client metadata buffer.\n");
         exit(EXIT_FAILURE);
     }
-
-
-    printf("Received client Memory at address %p with LKey %u\n\n", (void *)rep_pdata.buf_va, rep_pdata.buf_rkey);
     
     struct message *msg = (struct message *)recv_buffer;
 
@@ -285,7 +267,7 @@ static void process_message() {
     send_wr.wr.rdma.rkey = ntohl(rep_pdata.buf_rkey); // 클라이언트 권한 키
 	send_wr.wr.rdma.remote_addr = bswap_64(rep_pdata.buf_va); // 클라이언트 메모리 주소
 
-    if (ibv_post_recv(id->qp, &send_sge, &bad_send_wr)) {
+    if (ibv_post_send(id->qp, &send_sge, &bad_send_wr)) {
         perror("ibv_post_recv");
         exit(EXIT_FAILURE);
     }
@@ -354,6 +336,33 @@ void cleanup(struct rdma_cm_id *id) {
         ec = NULL;
     }
 }
+
+
+/**
+./server
+Listening for incoming connections...
+
+Event type: RDMA_CM_EVENT_CONNECT_REQUEST
+Connection request received.
+
+Creating QP...
+Queue Pair created: 0x5647122260b8
+
+Memory registered at address 0x5647122269e0 with LKey 127143
+
+Connection accepted.
+
+Received client Memory at address 0x55f6de1618c0 with LKey 143633
+
+Event type: RDMA_CM_EVENT_ESTABLISHED
+connect established.
+
+check_notify_before_using_rdma_write ended
+Received message - Type: -694706976, Key: , Value: 
+Segmentation fault
+
+
+ */
 
 
 /**
