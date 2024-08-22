@@ -1,7 +1,5 @@
 #include "common.h"
 
-
-/* RDMA related resources */
 static struct rdma_context ctx;
 static struct rdma_cm_id *listen_id; 
 static struct rdma_cm_id *id = NULL;
@@ -20,8 +18,9 @@ static void *cq_context;
 static void setup_connection();
 static int handle_event();
 static void on_connect();
+
 static int pre_post_recv_buffer();
-static int check_notify_before_using_rdma_write();
+static void check_notify_before_using_rdma_write();
 static void process_message();
 void cleanup(struct rdma_cm_id *id);
 
@@ -34,20 +33,17 @@ int main() {
 static void setup_connection() {
     struct sockaddr_in addr;
 
-    /* Bind address to RDMA ID */
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(SERVER_PORT);
     addr.sin_addr.s_addr = INADDR_ANY;
 
-    /* Create RDMA event channel */
     ec = rdma_create_event_channel();
     if (!ec) {
         perror("rdma_create_event_channel");
         exit(EXIT_FAILURE);
     }
 
-    /* Create RDMA ID */
     if (rdma_create_id(ec, &listen_id, NULL, RDMA_PS_TCP)) {
         perror("rdma_create_id");
         exit(EXIT_FAILURE);
@@ -58,7 +54,6 @@ static void setup_connection() {
         exit(EXIT_FAILURE);
     }
 
-    /* Listen for incoming connections */
     if (rdma_listen(listen_id, 1)) {
         perror("rdma_listen");
         exit(EXIT_FAILURE);
@@ -67,7 +62,7 @@ static void setup_connection() {
     printf("Listening for incoming connections...\n\n");
 
     while (1) {
-        /* Wait for an event */
+
         if (rdma_get_cm_event(ec, &event)) {
             perror("rdma_get_cm_event");
             exit(EXIT_FAILURE);
@@ -79,13 +74,13 @@ static void setup_connection() {
             break;
         }
 
-        /* Acknowledge the event */
         if (rdma_ack_cm_event(event)) {
             perror("rdma_ack_cm_event");
             exit(EXIT_FAILURE);
         }
     }
 }
+
 static int handle_event() {
 
     printf("Event type: %s\n", rdma_event_str(event->event));
@@ -122,7 +117,7 @@ static void on_connect() {
 
     pre_post_recv_buffer();
 
-    rep_pdata.buf_va = (uintptr_t)recv_buffer;
+    rep_pdata.buf_va = htonll((uintptr_t) recv_buffer);
     rep_pdata.buf_rkey = htonl(ctx.recv_mr->rkey);
 
     memset(&conn_param, 0, sizeof(conn_param));
@@ -139,23 +134,25 @@ static void on_connect() {
     printf("Connection accepted.\n\n");
     
     memcpy(&rep_pdata,event->param.conn.private_data,sizeof(rep_pdata));
-    printf("Received client Memory at address %p with LKey %u\n", (void *)rep_pdata.buf_va, ntohl(rep_pdata.buf_rkey));
+    printf("Received client Memory at address %p with RKey %u\n", (void *)rep_pdata.buf_va, ntohl(rep_pdata.buf_rkey));
 }
 
 static int pre_post_recv_buffer() {
     
-    recv_buffer = (char *)malloc(BUFFER_SIZE);
+    recv_buffer = calloc(2, sizeof(uint32_t));
     if (!recv_buffer) {
         perror("Failed to allocate memory for receive buffer");
         exit(EXIT_FAILURE);
     }
 
-    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE); 
-	if (!ctx.recv_mr) 
+    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE 
+        | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+	
+    if (!ctx.recv_mr) 
 		exit(EXIT_FAILURE);
 
-    recv_sge.addr = (uintptr_t)recv_buffer;
-    recv_sge.length = BUFFER_SIZE;
+    recv_sge.addr = (uintptr_t)recv_buffer + sizeof(uint32_t);
+    recv_sge.length = sizeof(uint32_t);
     recv_sge.lkey = ctx.recv_mr->lkey;
 
     memset(&recv_wr, 0, sizeof(recv_wr));
@@ -172,116 +169,95 @@ static int pre_post_recv_buffer() {
     return 0;
 }
 
-static int check_notify_before_using_rdma_write()
+static void check_notify_before_using_rdma_write()
 {
-    struct ibv_wc wc;
-    struct ibv_cq *evt_cq;
-    void *cq_context;
+    int ret;
 
-    // CQ 이벤트를 가져와야 함
-	if (ibv_get_cq_event(ctx.comp_channel,&evt_cq,&cq_context))
-		return 1;
-    
-    // CQ에 대한 알림 요청
-    if (ibv_req_notify_cq(ctx.cq,0))
-		return 1;
-    
-   // CQ에서 작업 완료를 폴링
-    int num_wc = ibv_poll_cq(ctx.cq, 1, &wc);
-    if (num_wc < 0) {
-        perror("ibv_poll_cq failed");
-        return 1;
-    } else if (num_wc == 0) {
-        printf("No completions found\n");
-        return 1;
+    do {
+        ret = ibv_poll_cq(ctx.cq, 1, &wc);
+    } while (ret == 0);
+
+    if (ret < 0) {
+        perror("ibv_poll_cq");
+        exit(EXIT_FAILURE);
     }
-    
-    // 작업 완료 상태 확인
-    // if (wc.status != IBV_WC_SUCCESS)
-	// 	return 1;
 
+    if (wc.status != IBV_WC_SUCCESS) {
+        fprintf(stderr, "Work completion error: %s\n", ibv_wc_status_str(wc.status));
+        exit(EXIT_FAILURE);
+    }
 
     printf("check_notify_before_using_rdma_write ended\n");
-
-    return 0;
 }
 
-
 static void process_message() {
+    while(1) {
+        rdma_ack_cm_event(event);
+        struct message *msg = (struct message *)recv_buffer;
+        check_notify_before_using_rdma_write();
 
-    //memcpy(&rep_pdata,event->param.conn.private_data,sizeof(rep_pdata));
+        send_buffer = calloc(2, sizeof(uint32_t));
+        if (!send_buffer) {
+            perror("Failed to allocate memory for send buffer");
+            exit(EXIT_FAILURE);
+        }
 
-    /* we need to check IBV_WR_RDMA_WRITE is done, so we post_recv at first */
-    // if (pre_post_recv_buffer())
-    //     exit(EXIT_FAILURE);
-    /* we need to check we already receive RDMA_WRITE done notification */
-    if (check_notify_before_using_rdma_write())
-        exit(EXIT_FAILURE);
+        ctx.send_mr = ibv_reg_mr(ctx.pd, send_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+        if (!ctx.send_mr) {
+            fprintf(stderr, "Failed to register client metadata buffer.\n");
+            exit(EXIT_FAILURE);
+        }
 
-     // 메모리 등록
-    send_buffer = (char *)malloc(BUFFER_SIZE);
-    if (!send_buffer) {
-        perror("Failed to allocate memory for send buffer");
-        exit(EXIT_FAILURE);
-    }
+        if (msg == NULL) {
+            printf("Received null message.\n");
+            exit(EXIT_FAILURE);
+        }
 
-    ctx.send_mr = ibv_reg_mr(ctx.pd, send_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
-    if (!ctx.send_mr) {
-        fprintf(stderr, "Failed to register client metadata buffer.\n");
-        exit(EXIT_FAILURE);
-    }
+        printf("Received message - Type: %d, Key: %s, Value: %s\n", msg->type, msg->kv.key, msg->kv.value);
     
-    struct message *msg = (struct message *)recv_buffer;
+         
+        if (msg->type == MSG_PUT) {
+            printf("PUT operation: Key: %s, Value: %s\n", msg->kv.key, msg->kv.value);
+            snprintf(send_buffer, BUFFER_SIZE, "PUT %s %s", msg->kv.key, msg->kv.value);
+        } else if (msg->type == MSG_GET) {
+            snprintf(send_buffer, BUFFER_SIZE, "GET %s", msg->kv.key);
+            printf("GET operation: Key: %s, Value: dummy_value\n", msg->kv.key);
+        }
 
-     printf("Received message - Type: %d, Key: %s, Value: %s\n",
-           msg->type,
-           msg->kv.key,
-           msg->kv.value);
+        send_sge.addr = (uintptr_t)send_buffer;
+        send_sge.length = BUFFER_SIZE;
+        send_sge.lkey = ctx.send_mr->lkey;
 
-   
+        send_wr.opcode = IBV_WR_SEND;
+        send_wr.send_flags = IBV_SEND_SIGNALED;
+        send_wr.sg_list = &send_sge;
+        send_wr.num_sge = 1;
+        send_wr.wr_id = 1;
 
-    /* Handle the received message */
-    if (msg->type == MSG_PUT) {
-        // Store the key-value pair
-        // Here we just print it for simplicity
-        printf("PUT operation: Key: %s, Value: %s\n", msg->kv.key, msg->kv.value);
-        snprintf(send_buffer, BUFFER_SIZE, "PUT %s %s", msg->kv.key, msg->kv.value);
-    } else if (msg->type == MSG_GET) {
-        // Retrieve the value for the given key
-        // Here we just provide a dummy value for simplicity
-        snprintf(send_buffer, BUFFER_SIZE, "GET %s", msg->kv.key);
-        printf("GET operation: Key: %s, Value: dummy_value\n", msg->kv.key);
-    }
+        send_wr.wr.rdma.rkey = ntohl(rep_pdata.buf_rkey);
+	    send_wr.wr.rdma.remote_addr = bswap_64(rep_pdata.buf_va); 
 
-    /* register post send, here we use IBV_WR_SEND */
-    send_sge.addr = (uintptr_t)send_buffer;
-    send_sge.length = BUFFER_SIZE;
-    send_sge.lkey = ctx.send_mr->lkey;
-
-    send_wr.opcode = IBV_WR_SEND;
-    send_wr.send_flags = IBV_SEND_SIGNALED;
-    send_wr.sg_list = &send_sge;
-    send_wr.num_sge = 1;
-    send_wr.wr_id = 1;
-
-    send_wr.wr.rdma.rkey = ntohl(rep_pdata.buf_rkey); // 클라이언트 권한 키
-	send_wr.wr.rdma.remote_addr = bswap_64(rep_pdata.buf_va); // 클라이언트 메모리 주소
-
-    if (ibv_post_send(id->qp, &send_sge, &bad_send_wr)) {
-        perror("ibv_post_recv");
-        exit(EXIT_FAILURE);
-    }
+        if (ibv_post_send(id->qp, &send_wr, &bad_send_wr)) {
+            perror("ibv_post_recv");
+            exit(EXIT_FAILURE);
+        }
 
     
-    if (ibv_get_cq_event(ctx.comp_channel,&ctx.evt_cq,&cq_context))
-		exit(EXIT_FAILURE);
-	ibv_ack_cq_events(ctx.cq,1);
-	if (ibv_req_notify_cq(ctx.cq,0))
-		exit(EXIT_FAILURE);
-	if (ibv_poll_cq(ctx.cq,1,&wc) != 1)
-		exit(EXIT_FAILURE);
-	if (wc.status != IBV_WC_SUCCESS)
-		exit(EXIT_FAILURE);
+        if (ibv_get_cq_event(ctx.comp_channel,&ctx.evt_cq,&cq_context))
+		    exit(EXIT_FAILURE);
+	
+        ibv_ack_cq_events(ctx.cq,1);
+
+	    if (ibv_req_notify_cq(ctx.cq,0))
+		    exit(EXIT_FAILURE);
+
+	    if (ibv_poll_cq(ctx.cq,1,&wc) != 1)
+		    exit(EXIT_FAILURE);
+
+	    if (wc.status != IBV_WC_SUCCESS)
+		    exit(EXIT_FAILURE);
+        }
+    
 }
 
 void cleanup(struct rdma_cm_id *id) {
@@ -338,6 +314,7 @@ void cleanup(struct rdma_cm_id *id) {
 }
 
 
+
 /**
 ./server
 Listening for incoming connections...
@@ -346,20 +323,19 @@ Event type: RDMA_CM_EVENT_CONNECT_REQUEST
 Connection request received.
 
 Creating QP...
-Queue Pair created: 0x5647122260b8
+Queue Pair created: 0x55ae90c880b8
 
-Memory registered at address 0x5647122269e0 with LKey 127143
+Memory registered at address 0x55ae90c889e0 with LKey 71933
 
 Connection accepted.
 
-Received client Memory at address 0x55f6de1618c0 with LKey 143633
-
+Received client Memory at address 0x55bcadf7a8c0 with RKey 103539
 Event type: RDMA_CM_EVENT_ESTABLISHED
 connect established.
 
 check_notify_before_using_rdma_write ended
-Received message - Type: -694706976, Key: , Value: 
-Segmentation fault
+Received message - Type: 0, Key: , Value: 
+PUT operation: Key: , Value: 
 
 
  */
