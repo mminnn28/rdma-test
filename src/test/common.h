@@ -19,6 +19,16 @@
 #define ntohll(x) __builtin_bswap64(x)
 #endif //endian.h
 
+// #if __BYTE_ORDER == __LITTLE_ENDIAN
+// static inline uint64_t htonll(uint64_t x) { return bswap_64(x); }
+// static inline uint64_t ntohll(uint64_t x) { return bswap_64(x); }
+// #elif __BYTE_ORDER == __BIG_ENDIAN
+// static inline uint64_t htonll(uint64_t x) { return x; }
+// static inline uint64_t ntohll(uint64_t x) { return x; }
+// #else
+// #error __BYTE_ORDER is neither __LITTLE_ENDIAN nor __BIG_ENDIAN
+// #endif
+
 static inline uint64_t bswap_64(uint64_t x) {
     return ((x & 0x00000000000000FFULL) << 56) |
            ((x & 0x000000000000FF00ULL) << 40) |
@@ -47,10 +57,9 @@ static inline uint64_t bswap_64(uint64_t x) {
 
 struct pdata { 
     uint64_t buf_va; 
-    uint32_t buf_rkey; 
+    uint32_t buf_rkey;
 };
 
-// Define message types
 enum msg_type {
     MSG_PUT,
     MSG_GET
@@ -68,7 +77,6 @@ struct message {
     uint64_t addr; 
 };
 
-// RDMA context structure
 struct rdma_context {
     struct ibv_device *device;
     struct ibv_context *verbs;
@@ -80,7 +88,6 @@ struct rdma_context {
     struct ibv_mr *send_mr, *recv_mr;
 };
 
-// Function prototypes
 void build_context(struct rdma_context *ctx, struct rdma_cm_id *id);
 void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx);
 
