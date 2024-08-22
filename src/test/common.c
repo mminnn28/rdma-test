@@ -13,6 +13,7 @@ void build_context(struct rdma_context *ctx, struct rdma_cm_id *id) {
         perror("ibv_alloc_pd");
         exit(EXIT_FAILURE);
 	}
+    //id->context = (void *)malloc(sizeof(struct rdma_context));
 
     ctx->comp_channel = ibv_create_comp_channel(id->verbs); 
     if (!ctx->comp_channel) {
@@ -53,5 +54,3 @@ void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx) {
     attr->srq = NULL;
     attr->sq_sig_all = 0;
 }
-
-
