@@ -19,35 +19,9 @@
 #define ntohll(x) __builtin_bswap64(x)
 #endif //endian.h
 
-// #if __BYTE_ORDER == __LITTLE_ENDIAN
-// static inline uint64_t htonll(uint64_t x) { return bswap_64(x); }
-// static inline uint64_t ntohll(uint64_t x) { return bswap_64(x); }
-// #elif __BYTE_ORDER == __BIG_ENDIAN
-// static inline uint64_t htonll(uint64_t x) { return x; }
-// static inline uint64_t ntohll(uint64_t x) { return x; }
-// #else
-// #error __BYTE_ORDER is neither __LITTLE_ENDIAN nor __BIG_ENDIAN
-// #endif
-
-static inline uint64_t bswap_64(uint64_t x) {
-    return ((x & 0x00000000000000FFULL) << 56) |
-           ((x & 0x000000000000FF00ULL) << 40) |
-           ((x & 0x0000000000FF0000ULL) << 24) |
-           ((x & 0x00000000FF000000ULL) << 8)  |
-           ((x & 0x000000FF00000000ULL) >> 8)  |
-           ((x & 0x0000FF0000000000ULL) >> 24) |
-           ((x & 0x00FF000000000000ULL) >> 40) |
-           ((x & 0xFF00000000000000ULL) >> 56);
-}
-
-/* Error Macro*/
-#define rdma_error(msg, args...) do {\
-	fprintf(stderr, "%s : %d : ERROR : "msg, __FILE__, __LINE__, ## args);\
-}while(0);
-
 // Constants
 #define KEY_VALUE_SIZE 256
-#define BUFFER_SIZE (KEY_VALUE_SIZE * 2)
+#define BUFFER_SIZE (KEY_VALUE_SIZE * 3)
 #define SERVER_PORT 20079
 #define TIMEOUT_IN_MS 500
 #define CQ_CAPACITY 16
@@ -74,7 +48,6 @@ struct kv_pair {
 struct message {
     enum msg_type type;
     struct kv_pair kv;
-    uint64_t addr; 
 };
 
 struct rdma_context {
