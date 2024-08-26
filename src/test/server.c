@@ -15,6 +15,7 @@ struct ibv_wc wc;
 static char *send_buffer = NULL, *recv_buffer = NULL;
 static void *cq_context;
 
+
 static void setup_connection();
 static int handle_event();
 static void on_connect();
@@ -139,20 +140,20 @@ static void on_connect() {
 
 static int pre_post_recv_buffer() {
     
-    recv_buffer = calloc(2, sizeof(uint32_t));
+    recv_buffer = calloc(1, sizeof(struct message));
     if (!recv_buffer) {
         perror("Failed to allocate memory for receive buffer");
         exit(EXIT_FAILURE);
     }
 
-    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE 
+    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, sizeof(struct message), IBV_ACCESS_LOCAL_WRITE 
         | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
 	
     if (!ctx.recv_mr) 
 		exit(EXIT_FAILURE);
 
-    recv_sge.addr = (uintptr_t)recv_buffer + sizeof(uint32_t);
-    recv_sge.length = sizeof(uint32_t);
+    recv_sge.addr = (uintptr_t)recv_buffer;
+    recv_sge.length = sizeof(struct message);
     recv_sge.lkey = ctx.recv_mr->lkey;
 
     memset(&recv_wr, 0, sizeof(recv_wr));
@@ -196,7 +197,7 @@ static void process_message() {
         struct message *msg = (struct message *)recv_buffer;
         check_notify_before_using_rdma_write();
 
-        send_buffer = calloc(2, sizeof(uint32_t));
+        send_buffer = (char *)calloc(1, sizeof(struct message));
         if (!send_buffer) {
             perror("Failed to allocate memory for send buffer");
             exit(EXIT_FAILURE);
@@ -213,6 +214,7 @@ static void process_message() {
             exit(EXIT_FAILURE);
         }
 
+        printf("Packet size: %lu bytes\n\n", sizeof(struct message));
         printf("Received message - Type: %d, Key: %s, Value: %s\n", msg->type, msg->kv.key, msg->kv.value);
     
          
@@ -225,7 +227,7 @@ static void process_message() {
         }
 
         send_sge.addr = (uintptr_t)send_buffer;
-        send_sge.length = BUFFER_SIZE;
+        send_sge.length = sizeof(struct message);
         send_sge.lkey = ctx.send_mr->lkey;
 
         send_wr.opcode = IBV_WR_SEND;
@@ -235,7 +237,7 @@ static void process_message() {
         send_wr.wr_id = 1;
 
         send_wr.wr.rdma.rkey = ntohl(rep_pdata.buf_rkey);
-	    send_wr.wr.rdma.remote_addr = bswap_64(rep_pdata.buf_va); 
+	    send_wr.wr.rdma.remote_addr = ntohll(rep_pdata.buf_va); 
 
         if (ibv_post_send(id->qp, &send_wr, &bad_send_wr)) {
             perror("ibv_post_recv");
@@ -243,8 +245,10 @@ static void process_message() {
         }
 
     
-        if (ibv_get_cq_event(ctx.comp_channel,&ctx.evt_cq,&cq_context))
-		    exit(EXIT_FAILURE);
+        if (ibv_get_cq_event(ctx.comp_channel,&ctx.evt_cq,&cq_context)) {
+            perror("ibv_get_cq_event");
+            exit(EXIT_FAILURE);
+        }
 	
         ibv_ack_cq_events(ctx.cq,1);
 
@@ -316,26 +320,27 @@ void cleanup(struct rdma_cm_id *id) {
 
 
 /**
-./server
+ ./server
 Listening for incoming connections...
 
 Event type: RDMA_CM_EVENT_CONNECT_REQUEST
 Connection request received.
 
 Creating QP...
-Queue Pair created: 0x55ae90c880b8
+Queue Pair created: 0x563af9fa80b8
 
-Memory registered at address 0x55ae90c889e0 with LKey 71933
+Memory registered at address 0x563af9fa89e0 with LKey 190409
 
 Connection accepted.
 
-Received client Memory at address 0x55bcadf7a8c0 with RKey 103539
+Received client Memory at address 0x561f2fc868c0 with RKey 198341
 Event type: RDMA_CM_EVENT_ESTABLISHED
 connect established.
 
 check_notify_before_using_rdma_write ended
-Received message - Type: 0, Key: , Value: 
-PUT operation: Key: , Value: 
+Packet size: 516 bytes
 
+Received message - Type: 0, Key: a, Value: b
+PUT operation: Key: a, Value: b
 
  */
