@@ -127,7 +127,7 @@ static void pre_post_recv_buffer() {
     }
 
     recv_sge.addr =  (uintptr_t)recv_buffer;
-    recv_sge.length = sizeof(uint32_t);
+    recv_sge.length = sizeof(struct message);
     recv_sge.lkey = ctx.recv_mr->lkey;
 
     memset(&recv_wr, 0, sizeof(recv_wr));
@@ -182,13 +182,13 @@ int on_connect() {
     char command[256];
     struct message msg_send;
 
-    send_buffer = (char *)malloc(BUFFER_SIZE);
+    send_buffer = (char *)malloc(sizeof(struct message));
     if (!send_buffer) {
         perror("Failed to allocate memory for send buffer");
         exit(EXIT_FAILURE);
     }
 
-    ctx.send_mr = ibv_reg_mr(ctx.pd, send_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE 
+    ctx.send_mr = ibv_reg_mr(ctx.pd, send_buffer, sizeof(struct message), IBV_ACCESS_LOCAL_WRITE 
         | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
     
     if (!ctx.send_mr) {
@@ -210,12 +210,14 @@ int on_connect() {
             char *key = strtok(NULL, " ");
             char *value = strtok(NULL, "");
 
-            strncpy(msg_send.kv.key, key, KEY_VALUE_SIZE - 1);
+            strncpy(msg_send.kv.key, key, sizeof(msg_send.kv.key));
             msg_send.kv.key[KEY_VALUE_SIZE - 1] = '\0';
+            printf("Key size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.key));
 
-            strncpy(msg_send.kv.value, value, KEY_VALUE_SIZE - 1);
+            strncpy(msg_send.kv.value, value, sizeof(msg_send.kv.value));
             msg_send.kv.value[KEY_VALUE_SIZE - 1] = '\0';
             msg_send.type = MSG_PUT;
+            printf("value size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.value));
 
             printf("msg key: %s, msg value: %s\n", msg_send.kv.key, msg_send.kv.value);
 
@@ -223,7 +225,7 @@ int on_connect() {
 
             char *key = strtok(NULL, "");
 
-            strncpy(msg_send.kv.key, key, KEY_VALUE_SIZE - 1);
+            strncpy(msg_send.kv.key, key, sizeof(msg_send.kv.key));
             msg_send.kv.key[KEY_VALUE_SIZE - 1] = '\0';
             msg_send.kv.value[0] = '\0'; 
             msg_send.type = MSG_GET;
@@ -234,7 +236,7 @@ int on_connect() {
             continue;
         }
 
-        msg_send.type = htonl(msg_send.type);
+        //msg_send.type = htonl(msg_send.type);
     
         memcpy(send_buffer, &msg_send, sizeof(struct message));
     
@@ -254,7 +256,7 @@ void post_send_message() {
     struct message *msg_send = (struct message *)send_buffer;
 
     send_sge.addr = (uintptr_t)send_buffer;
-    send_sge.length = sizeof(send_buffer);
+    send_sge.length = sizeof(struct message);
     send_sge.lkey = ctx.send_mr->lkey;
 
     send_wr.wr_id = 2;
@@ -271,6 +273,8 @@ void post_send_message() {
     printf("Type: %d\n", msg_in_buffer->type);
     printf("Key: %s\n", msg_in_buffer->kv.key);
     printf("Value: %s\n\n", msg_in_buffer->kv.value);
+
+    printf("Packet size: %lu bytes\n\n", sizeof(struct message));
 
 
     if (post_and_wait(&send_wr, "RDMA Write") != 0) {
@@ -303,7 +307,6 @@ int post_and_wait(struct ibv_send_wr *wr, const char *operation_name) {
     printf("%s completed successfully\n\n", operation_name);
     return 0;
 }
-
 
 int wait_for_completion() {
     struct ibv_wc wc;
@@ -339,33 +342,6 @@ int receive_response() {
 
     return 0;
 }
-
-// int send_notification_to_server() {
-//     struct ibv_sge sge;
-//     struct ibv_send_wr send_wr = {}, *bad_send_wr = NULL;
-//     char notification = 1;
-
-//     struct ibv_mr *notify_mr = ibv_reg_mr(ctx.pd, &notification, sizeof(char), IBV_ACCESS_LOCAL_WRITE);
-//     if (!notify_mr) {
-//         fprintf(stderr, "Failed to register MR for notification: %s\n", strerror(errno));
-//         return -1;
-//     }
-
-//     sge.addr = (uintptr_t)&notification;
-//     sge.length = sizeof(char);
-//     sge.lkey = notify_mr->lkey;
-
-//     send_wr.wr_id = 2;
-//     send_wr.opcode = IBV_WR_SEND;
-//     send_wr.sg_list = &sge;
-//     send_wr.num_sge = 1;
-//     send_wr.send_flags = IBV_SEND_SIGNALED;
-
-//     int result = post_and_wait(&send_wr, "Notification");
-
-//     ibv_dereg_mr(notify_mr);
-//     return result;
-// }
 
 void cleanup(struct rdma_cm_id *id) {
 
@@ -423,18 +399,22 @@ void cleanup(struct rdma_cm_id *id) {
 
 
 /*
-./client 10.10.1.1
+./client 10.10.1.2
 Creating QP...
-Queue Pair created: 0x55bcadf7a018
+Queue Pair created: 0x561f2fc86018
 
-Memory registered at address 0x55bcadf7a8c0 with LKey 103539
+Memory registered at address 0x561f2fc868c0 with LKey 198341
 Connecting...
 Connection established.
-Received Server Memory at address 0xe089c890ae550000 with RKey 71933
+Received Server Memory at address 0xe089faf93a560000 with RKey 190409
 
 The client is connected successfully. 
 
 Enter command ( put k v / get k ): put a b
+Key size Packet size: 256 bytes
+
+value size Packet size: 256 bytes
+
 msg key: a, msg value: b
 
 send_buffer content:
@@ -442,9 +422,11 @@ Type: 0
 Key: a
 Value: b
 
+Packet size: 516 bytes
+
 RDMA Write completed successfully
 
 Send completed successfully
 
-WR failed with status local length error
-*/
+Response: 
+^C
