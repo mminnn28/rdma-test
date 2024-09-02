@@ -114,7 +114,7 @@ static void setup_connection(const char *server_ip) {
 }
 
 static void pre_post_recv_buffer() {
-    recv_buffer = calloc(2, sizeof(uint32_t));
+    recv_buffer = calloc(1, sizeof(uint32_t));
     if (!recv_buffer) {
         perror("Failed to allocate memory for receive buffer");
         exit(EXIT_FAILURE);
@@ -242,10 +242,10 @@ int on_connect() {
     
         post_send_message();
 
-        if (receive_response() != 0) {
-            fprintf(stderr, "Failed to receive response\n");
-            continue;
-        }
+        // if (receive_response() != 0) {
+        //     fprintf(stderr, "Failed to receive response\n");
+        //     continue;
+        // }
     }
 
     cleanup(id);
@@ -283,6 +283,8 @@ void post_send_message() {
 
     send_wr.opcode = IBV_WR_SEND;
     send_sge.length = sizeof(uint32_t);
+
+    //pre_post_recv_buffer();
 
     if (post_and_wait(&send_wr, "Send") != 0) {
         exit(EXIT_FAILURE);
@@ -334,10 +336,16 @@ int receive_response() {
     }
 
     struct message *response = (struct message *)recv_buffer;
+    printf("\nrecv_buffer content:\n");
+    printf("Type: %d\n", response->type);
+    printf("Key: %s\n", response->kv.key);
+    printf("Value: %s\n\n", response->kv.value);
+
+
     if (response->type == MSG_GET) {
-        printf("Received response: Key: %s, Value: %s\n", response->kv.key, response->kv.value);
-    } else {
-        printf("Response: %s\n", response->kv.value);
+        printf("GET Received response: Key: %s, Value: %s\n", response->kv.key, response->kv.value);
+    } else if (response->type == MSG_PUT) {
+        printf("PUT Response value: %s\n", response->kv.value);
     }
 
     return 0;
@@ -399,14 +407,14 @@ void cleanup(struct rdma_cm_id *id) {
 
 
 /*
-./client 10.10.1.2
+./client 10.10.1.1
 Creating QP...
-Queue Pair created: 0x561f2fc86018
+Queue Pair created: 0x561b972c4018
 
-Memory registered at address 0x561f2fc868c0 with LKey 198341
+Memory registered at address 0x561b972c48c0 with LKey 671518
 Connecting...
 Connection established.
-Received Server Memory at address 0xe089faf93a560000 with RKey 190409
+Received Server Memory at address 0xe0995a5365550000 with RKey 560491
 
 The client is connected successfully. 
 
@@ -418,7 +426,7 @@ value size Packet size: 256 bytes
 msg key: a, msg value: b
 
 send_buffer content:
-Type: 0
+Type: 1
 Key: a
 Value: b
 
@@ -428,6 +436,14 @@ RDMA Write completed successfully
 
 Send completed successfully
 
-Response: 
-^C
+
+recv_buffer content:
+Type: 1
+Key: a
+Value: b
+
+PUT Response value: b
+Enter command ( put k v / get k ): ^C
+
 */
+
