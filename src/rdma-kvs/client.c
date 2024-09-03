@@ -137,7 +137,6 @@ static void pre_post_recv_buffer() {
 
     recv_sge.addr = (uintptr_t)recv_buffer;
     recv_sge.length = sizeof(struct message);  // 한 번에 한 메시지를 처리한다고 가정
-
     recv_sge.lkey = ctx.recv_mr->lkey;
 
     memset(&recv_wr, 0, sizeof(recv_wr));
@@ -149,7 +148,7 @@ static void pre_post_recv_buffer() {
         perror("Failed to post receive work request");
         exit(EXIT_FAILURE);
     }
-    printf("Memory registered at address %p with LKey %u\n\n", recv_buffer, ctx.recv_mr->lkey);
+    printf("Memory registered at address %p with LKey %u\n", recv_buffer, ctx.recv_mr->lkey);
 }
 
 
@@ -223,12 +222,12 @@ int on_connect() {
 
             strncpy(msg_send.kv.key, key, sizeof(msg_send.kv.key));
             msg_send.kv.key[KEY_VALUE_SIZE - 1] = '\0';
-            printf("Key size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.key));
+            //printf("Key size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.key));
 
             strncpy(msg_send.kv.value, value, sizeof(msg_send.kv.value));
             msg_send.kv.value[KEY_VALUE_SIZE - 1] = '\0';
             msg_send.type = MSG_PUT;
-            printf("value size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.value));
+            //printf("value size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.value));
 
             printf("msg key: %s, msg value: %s\n", msg_send.kv.key, msg_send.kv.value);
 
@@ -268,7 +267,7 @@ void post_send_message() {
     send_wr.num_sge = 1;
     send_wr.send_flags = IBV_SEND_SIGNALED;
 
-    send_wr.opcode = IBV_WR_RDMA_WRITE;
+    //send_wr.opcode = IBV_WR_RDMA_WRITE;
     send_wr.wr.rdma.rkey = ntohl(rep_pdata.buf_rkey); 
 	send_wr.wr.rdma.remote_addr = ntohll(rep_pdata.buf_va); 
 
@@ -278,12 +277,12 @@ void post_send_message() {
     printf("Key: %s\n", msg_in_buffer->kv.key);
     printf("Value: %s\n\n", msg_in_buffer->kv.value);
 
-    if (post_and_wait(&send_wr, "RDMA Write") != 0) {
-        exit(EXIT_FAILURE);
-    }
+    // if (post_and_wait(&send_wr, "RDMA Write") != 0) {
+    //     exit(EXIT_FAILURE);
+    // }
 
     send_wr.opcode = IBV_WR_SEND;
-    send_sge.length = sizeof(uint32_t);
+    //send_sge.length = sizeof(struct message);
 
     pre_post_recv_buffer();
     //sleep(5);
@@ -308,7 +307,7 @@ int post_and_wait(struct ibv_send_wr *wr, const char *operation_name) {
         exit(EXIT_FAILURE);
     }
 
-    printf("%s completed successfully\n\n", operation_name);
+    printf("%s completed successfully\n", operation_name);
     return 0;
 }
 
@@ -345,9 +344,9 @@ int receive_response() {
 
 
     if (response->type == MSG_GET) {
-        printf("GET Received response: Key: %s, Value: %s\n", response->kv.key, response->kv.value);
+        printf("GET Received response: Key: %s, Value: %s\n\n", response->kv.key, response->kv.value);
     } else if (response->type == MSG_PUT) {
-        printf("PUT Response value: %s\n", response->kv.value);
+        printf("PUT Response value: %s\n\n", response->kv.value);
     }
 
     return 0;
@@ -405,4 +404,3 @@ void cleanup(struct rdma_cm_id *id) {
         ec = NULL;
     }
 }
-
