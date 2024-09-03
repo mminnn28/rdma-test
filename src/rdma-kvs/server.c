@@ -22,7 +22,7 @@ static int handle_event();
 static void on_connect();
 
 static int pre_post_recv_buffer();
-static void check_notify_before_using_rdma_write();
+static void wait_for_completion();
 static void process_message();
 int post_and_wait(struct ibv_send_wr *wr, const char *operation_name);
 void cleanup(struct rdma_cm_id *id);
@@ -42,27 +42,28 @@ unsigned int hash(const char *key) {
 
 void put(const char *key, const char *value) {
     unsigned int index = hash(key);
-    printf("put operation hash key: %d\n", index);
+    printf("PUT operation hash key: %d\n", index);
+    
     struct kv_pair *new_entry = malloc(sizeof(struct kv_pair));
     strncpy(new_entry->key, key, KEY_VALUE_SIZE);
     strncpy(new_entry->value, value, KEY_VALUE_SIZE);
     new_entry->next = hash_table[index];
     hash_table[index] = new_entry;
-    printf("fPUT operation: Key: %s, Value: %s\n\n", key, value);
+    printf("PUT operation: Key: %s, Value: %s\n\n", key, value);
 }
 
 char *get(const char *key) {
     unsigned int index = hash(key);
-    printf("get operation hash key: %d\n", index);
+    printf("GET operation hash key: %d\n", index);
     struct kv_pair *entry = hash_table[index];
     while (entry != NULL) {
         if (strncmp(entry->key, key, KEY_VALUE_SIZE) == 0) {
-            printf("fGET operation: Key: %s, Value: %s\n", key, entry->value);
+            printf("GET operation: Key: %s, Value: %s\n", key, entry->value);
             return entry->value;
         }
         entry = entry->next;
     }
-    printf("fGET operation: Key: %s Value: not found\n\n", key);
+    printf("GET operation: Key: %s, Value: not found\n\n", key);
     return NULL;
 }
 
@@ -105,7 +106,7 @@ static void setup_connection() {
     while (1) {
         
         count++;
-        printf("count: %d\n", count);
+        //printf("count: %d\n", count);
 
         if (rdma_get_cm_event(ec, &event)) {
             perror("rdma_get_cm_event");
@@ -216,13 +217,13 @@ static int pre_post_recv_buffer() {
         perror("Failed to post receive work request");
         return 1;
     }
-    printf("Memory registered at address %p with LKey %u\n\n", recv_buffer, ctx.recv_mr->lkey);
+    printf("Memory registered at address %p with LKey %u\n", recv_buffer, ctx.recv_mr->lkey);
 
     return 0;
 }
 
 
-static void check_notify_before_using_rdma_write()
+static void wait_for_completion()
 {
     int ret;
 
@@ -240,16 +241,16 @@ static void check_notify_before_using_rdma_write()
         exit(EXIT_FAILURE);
     }
 
-    printf("check_notify_before_using_rdma_write ended\n");
+    printf("wait_for_completion ended\n");
 }
 
 static void process_message() {
 
     while(1) {
-        printf("here. \n\n");
+        //printf("here. \n\n");
         
         struct message *msg = (struct message *)recv_buffer;
-        check_notify_before_using_rdma_write();
+        wait_for_completion();
         
         send_buffer = (char *)calloc(2, sizeof(struct message));
         //send_buffer = (char *)malloc(sizeof(uint32_t));
@@ -270,11 +271,15 @@ static void process_message() {
         }
 
         //printf("Packet size: %lu bytes\n\n", sizeof(struct message));
-        printf("Received message - Type: %d, Key: %s, Value: %s\n", msg->type, msg->kv.key, msg->kv.value);
+        //printf("Received message - Type: %d, Key: %s, Value: %s\n", msg->type, msg->kv.key, msg->kv.value);
+        printf("\nrecv_buffer content:\n");
+        printf("Type: %d\n", msg->type);
+        printf("Key: %s\n", msg->kv.key);
+        printf("Value: %s\n\n", msg->kv.value);
     
         if (msg->type == MSG_PUT) {
             put(msg->kv.key, msg->kv.value);
-            printf("PUT operation: Key: %s, Value: %s\n", msg->kv.key, msg->kv.value);
+            //printf("PUT operation: Key: %s, Value: %s\n", msg->kv.key, msg->kv.value);
 
             //snprintf(send_buffer, BUFFER_SIZE, "PUT %s %s", msg->kv.key, msg->kv.value);
             strncpy(send_buffer, "PUT ", sizeof(msg->type));
@@ -283,7 +288,7 @@ static void process_message() {
             strncat(send_buffer, msg->kv.value, sizeof(msg->kv.value));
 
         } else if (msg->type == MSG_GET) {
-            printf("GET operation: Key: %s, Value: dummy_value\n", msg->kv.key);
+            //printf("GET operation: Key: %s, Value: dummy_value\n", msg->kv.key);
 
             char *value = get(msg->kv.key);
             if (value) {
@@ -325,7 +330,7 @@ static void process_message() {
             exit(EXIT_FAILURE);
         }
    
-        check_notify_before_using_rdma_write();
+        wait_for_completion();
 
         printf("Send completed successfully\n\n");
 
@@ -416,5 +421,4 @@ void cleanup(struct rdma_cm_id *id) {
 
     printf("here.\n");
 }
-
 
