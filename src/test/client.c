@@ -1,13 +1,12 @@
 #include "common.h"
+#include <stdlib.h>
+#include <time.h>
 
-/* RDMA resource */
 static struct rdma_context ctx;
 static struct rdma_cm_id *id = NULL;
 static struct rdma_event_channel *ec = NULL;
 static struct rdma_cm_event *event = NULL;
 static struct ibv_qp_init_attr qp_attr;
-
-void *cq_context;
 static struct pdata rep_pdata;
 
 struct ibv_recv_wr recv_wr, *bad_recv_wr = NULL;
@@ -20,25 +19,44 @@ static void setup_connection(const char *server_ip);
 static void pre_post_recv_buffer();
 static void connect_server();
 
-int on_connect();
+int on_connect(int dataset_size, int key_size, int value_size);
 void post_send_message();
 int receive_response();
 int wait_for_completion();
 int post_and_wait(struct ibv_send_wr *wr, const char *operation_name);
-
 void cleanup(struct rdma_cm_id *id);
+
+void generate_random_string(char *str, size_t size) {
+    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    if (size) {
+        --size;
+        for (size_t n = 0; n < size; n++) {
+            int key = rand() % (int)(sizeof(charset) - 1);
+            str[n] = charset[key];
+        }
+        str[size] = '\0';
+    }
+}
+
+int get_random_command() {
+    return (rand() % 2 == 0) ? MSG_PUT : MSG_GET;
+}
 
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
+    if (argc != 5) {
+        fprintf(stderr, "Usage: %s <server-ip> <dataset-size> <key-size> <value-size>\n", argv[0]);
         return EXIT_FAILURE;
     }
+
+    int dataset_size = atoi(argv[2]);
+    int key_size = atoi(argv[3]);
+    int value_size = atoi(argv[4]);
 
     setup_connection(argv[1]);
     pre_post_recv_buffer();
     connect_server();
-    on_connect();
+    on_connect(dataset_size, key_size, value_size);
 
     return 0;
 }
@@ -113,21 +131,31 @@ static void setup_connection(const char *server_ip) {
     }
 }
 
+
 static void pre_post_recv_buffer() {
-    recv_buffer = calloc(1, sizeof(uint32_t));
-    if (!recv_buffer) {
-        perror("Failed to allocate memory for receive buffer");
-        exit(EXIT_FAILURE);
+    static int buffer_initialized = 0;
+
+    if (!buffer_initialized) {
+        recv_buffer = calloc(1, sizeof(struct message));  // 메시지 두 개를 받을 수 있도록 설정
+        if (!recv_buffer) {
+            perror("Failed to allocate memory for receive buffer");
+            exit(EXIT_FAILURE);
+        }
+
+        ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, 
+            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+
+        if (!ctx.recv_mr) {
+            perror("Failed to register memory region");
+            exit(EXIT_FAILURE);
+        }
+
+        buffer_initialized = 1;  // 버퍼 초기화 완료
+        printf("Memory registered at address %p with LKey %u\n", recv_buffer, ctx.recv_mr->lkey);
     }
 
-    ctx.recv_mr = ibv_reg_mr(ctx.pd, recv_buffer, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
-    if (!ctx.recv_mr) {
-        perror("Failed to register receive memory region");
-        exit(EXIT_FAILURE);
-    }
-
-    recv_sge.addr =  (uintptr_t)recv_buffer;
-    recv_sge.length = sizeof(struct message);
+    recv_sge.addr = (uintptr_t)recv_buffer;
+    recv_sge.length = sizeof(struct message);  // 한 번에 한 메시지를 처리한다고 가정
     recv_sge.lkey = ctx.recv_mr->lkey;
 
     memset(&recv_wr, 0, sizeof(recv_wr));
@@ -139,9 +167,9 @@ static void pre_post_recv_buffer() {
         perror("Failed to post receive work request");
         exit(EXIT_FAILURE);
     }
-
-    printf("Memory registered at address %p with LKey %u\n", recv_buffer, ctx.recv_mr->lkey);
+    
 }
+
 
 static void connect_server() {
     struct rdma_conn_param conn_param;
@@ -178,11 +206,10 @@ static void connect_server() {
     printf("The client is connected successfully. \n\n");
 }
 
-int on_connect() {
-    char command[256];
-    struct message msg_send;
+int on_connect(int dataset_size, int key_size, int value_size) {
+     struct message msg_send;
 
-    send_buffer = (char *)malloc(sizeof(struct message));
+    send_buffer = (char *)calloc(1, sizeof(struct message));
     if (!send_buffer) {
         perror("Failed to allocate memory for send buffer");
         exit(EXIT_FAILURE);
@@ -196,56 +223,33 @@ int on_connect() {
         exit(EXIT_FAILURE);
     }
 
-    while (1) {
-        printf("Enter command ( put k v / get k ): ");
-        if (fgets(command, sizeof(command), stdin) == NULL) {
-            fprintf(stderr, "Error reading command\n");
-            continue;
-        }
-        command[strcspn(command, "\n")] = '\0'; 
+    srand(time(NULL)); 
 
-        char *cmd = strtok(command, " ");
+    for (int i = 0; i < dataset_size; i++) {
+        int cmd_type = get_random_command();
 
-        if (strcmp(cmd, "put") == 0) {
-            char *key = strtok(NULL, " ");
-            char *value = strtok(NULL, "");
+        if (cmd_type == MSG_PUT) {
+            generate_random_string(msg_send.kv.key, key_size);
+            generate_random_string(msg_send.kv.value, value_size);
 
-            strncpy(msg_send.kv.key, key, sizeof(msg_send.kv.key));
-            msg_send.kv.key[KEY_VALUE_SIZE - 1] = '\0';
-            printf("Key size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.key));
-
-            strncpy(msg_send.kv.value, value, sizeof(msg_send.kv.value));
-            msg_send.kv.value[KEY_VALUE_SIZE - 1] = '\0';
             msg_send.type = MSG_PUT;
-            printf("value size Packet size: %lu bytes\n\n", sizeof(msg_send.kv.value));
 
-            printf("msg key: %s, msg value: %s\n", msg_send.kv.key, msg_send.kv.value);
+            //printf("PUT: Key = %s, Value = %s\n", msg_send.kv.key, msg_send.kv.value);
+            printf("PUT: Key = %s\n", msg_send.kv.key);
 
-        } else if (strcmp(cmd, "get") == 0) {
+        } else if (cmd_type == MSG_GET) {
+            char key[key_size];
 
-            char *key = strtok(NULL, "");
+            generate_random_string(msg_send.kv.key, key_size);
 
-            strncpy(msg_send.kv.key, key, sizeof(msg_send.kv.key));
-            msg_send.kv.key[KEY_VALUE_SIZE - 1] = '\0';
             msg_send.kv.value[0] = '\0'; 
             msg_send.type = MSG_GET;
 
-            printf("msg key: %s, msg value: %s\n", msg_send.kv.key, msg_send.kv.value);
-        } else {
-            printf("Invalid command\n");
-            continue;
+            printf("GET: Key = %s\n", msg_send.kv.key);
         }
 
-        //msg_send.type = htonl(msg_send.type);
-    
         memcpy(send_buffer, &msg_send, sizeof(struct message));
-    
         post_send_message();
-
-        // if (receive_response() != 0) {
-        //     fprintf(stderr, "Failed to receive response\n");
-        //     continue;
-        // }
     }
 
     cleanup(id);
@@ -264,27 +268,25 @@ void post_send_message() {
     send_wr.num_sge = 1;
     send_wr.send_flags = IBV_SEND_SIGNALED;
 
-    send_wr.opcode = IBV_WR_RDMA_WRITE;
+    //send_wr.opcode = IBV_WR_RDMA_WRITE;
     send_wr.wr.rdma.rkey = ntohl(rep_pdata.buf_rkey); 
 	send_wr.wr.rdma.remote_addr = ntohll(rep_pdata.buf_va); 
 
     struct message *msg_in_buffer = (struct message *)send_buffer;
-    printf("\nsend_buffer content:\n");
-    printf("Type: %d\n", msg_in_buffer->type);
-    printf("Key: %s\n", msg_in_buffer->kv.key);
-    printf("Value: %s\n\n", msg_in_buffer->kv.value);
+    // printf("\nsend_buffer content:\n");
+    // printf("Type: %d\n", msg_in_buffer->type);
+    // printf("Key: %s\n", msg_in_buffer->kv.key);
+    // printf("Value: %s\n\n", msg_in_buffer->kv.value);
 
-    printf("Packet size: %lu bytes\n\n", sizeof(struct message));
-
-
-    if (post_and_wait(&send_wr, "RDMA Write") != 0) {
-        exit(EXIT_FAILURE);
-    }
+    // if (post_and_wait(&send_wr, "RDMA Write") != 0) {
+    //     exit(EXIT_FAILURE);
+    // }
 
     send_wr.opcode = IBV_WR_SEND;
-    send_sge.length = sizeof(uint32_t);
+    //send_sge.length = sizeof(struct message);
 
-    //pre_post_recv_buffer();
+    pre_post_recv_buffer();
+    //sleep(5);
 
     if (post_and_wait(&send_wr, "Send") != 0) {
         exit(EXIT_FAILURE);
@@ -306,7 +308,7 @@ int post_and_wait(struct ibv_send_wr *wr, const char *operation_name) {
         exit(EXIT_FAILURE);
     }
 
-    printf("%s completed successfully\n\n", operation_name);
+    printf("%s completed successfully\n", operation_name);
     return 0;
 }
 
@@ -336,17 +338,17 @@ int receive_response() {
     }
 
     struct message *response = (struct message *)recv_buffer;
-    printf("\nrecv_buffer content:\n");
-    printf("Type: %d\n", response->type);
-    printf("Key: %s\n", response->kv.key);
-    printf("Value: %s\n\n", response->kv.value);
+    // printf("\nrecv_buffer content:\n");
+    // printf("Type: %d\n", response->type);
+    // printf("Key: %s\n", response->kv.key);
+    // printf("Value: %s\n\n", response->kv.value);
 
 
-    if (response->type == MSG_GET) {
-        printf("GET Received response: Key: %s, Value: %s\n", response->kv.key, response->kv.value);
-    } else if (response->type == MSG_PUT) {
-        printf("PUT Response value: %s\n", response->kv.value);
-    }
+    // if (response->type == MSG_GET) {
+    //     printf("GET Received response: Key: %s, Value: %s\n\n", response->kv.key, response->kv.value);
+    // } else if (response->type == MSG_PUT) {
+    //     printf("PUT Response value: %s\n\n", response->kv.value);
+    // }
 
     return 0;
 }
@@ -403,47 +405,4 @@ void cleanup(struct rdma_cm_id *id) {
         ec = NULL;
     }
 }
-
-
-
-/*
-./client 10.10.1.1
-Creating QP...
-Queue Pair created: 0x561b972c4018
-
-Memory registered at address 0x561b972c48c0 with LKey 671518
-Connecting...
-Connection established.
-Received Server Memory at address 0xe0995a5365550000 with RKey 560491
-
-The client is connected successfully. 
-
-Enter command ( put k v / get k ): put a b
-Key size Packet size: 256 bytes
-
-value size Packet size: 256 bytes
-
-msg key: a, msg value: b
-
-send_buffer content:
-Type: 1
-Key: a
-Value: b
-
-Packet size: 516 bytes
-
-RDMA Write completed successfully
-
-Send completed successfully
-
-
-recv_buffer content:
-Type: 1
-Key: a
-Value: b
-
-PUT Response value: b
-Enter command ( put k v / get k ): ^C
-
-*/
 
