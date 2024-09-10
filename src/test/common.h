@@ -20,14 +20,13 @@
 #endif //endian.h
 
 // Constants
-#define KEY_VALUE_SIZE 256
+#define KEY_VALUE_SIZE 100000
 #define BUFFER_SIZE (KEY_VALUE_SIZE * 3)
 #define SERVER_PORT 20079
 #define TIMEOUT_IN_MS 500
 #define CQ_CAPACITY 16
 #define MAX_SGE 1
 #define MAX_WR 16
-#define MAX_KEYS 256
 
 struct pdata { 
     uint64_t buf_va; 
@@ -39,16 +38,17 @@ enum msg_type {
     MSG_GET
 };
 
-
 struct kv_pair {
     char key[KEY_VALUE_SIZE];
     char value[KEY_VALUE_SIZE];
-};
+    struct kv_pair *next;
+} __attribute__((packed));
 
 struct message {
     enum msg_type type;
     struct kv_pair kv;
-};
+} __attribute__((packed));
+
 
 struct rdma_context {
     struct ibv_device *device;
@@ -65,3 +65,4 @@ void build_context(struct rdma_context *ctx, struct rdma_cm_id *id);
 void build_qp_attr(struct ibv_qp_init_attr *attr, struct rdma_context *ctx);
 
 #endif // COMMON_H
+
