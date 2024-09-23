@@ -1,3 +1,5 @@
+./client 10.10.1.1 5 16 256
+
 #include "common.h"
 #include <stdlib.h>
 #include <time.h>
