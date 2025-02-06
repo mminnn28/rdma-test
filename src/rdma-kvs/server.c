@@ -1,12 +1,6 @@
 #include "common.h"
 
-static struct rdma_context ctx;
-static struct rdma_cm_id *listen_id; 
-static struct rdma_cm_id *id = NULL;
-static struct rdma_event_channel *ec = NULL;
-static struct rdma_cm_event *event = NULL;
-static struct ibv_qp_init_attr qp_attr;
-static struct pdata rep_pdata;
+#define MAX_TENANT_NUM 5
 
 struct ibv_recv_wr recv_wr, *bad_recv_wr = NULL;
 struct ibv_send_wr send_wr, *bad_send_wr = NULL;
@@ -15,6 +9,44 @@ struct ibv_wc wc;
 static char *send_buffer = NULL, *recv_buffer = NULL;
 static void *cq_context;
 static int count = 0;
+
+
+// 자원 관리 (메모리 공유)
+struct perf_shm_context {
+    uint32_t next_tenant_id;
+    uint32_t tenant_num;
+    uint32_t active_tenant_num;
+    uint64_t active_qps_num;
+    uint32_t active_stenant_num;
+    uint32_t active_dtenant_num;
+    uint32_t active_mtenant_num;
+    uint32_t active_rrtenant_num;
+    uint32_t max_qps_limit;
+
+    uint32_t active_qps_per_tenant[MAX_TENANT_NUM];
+    uint32_t additional_qps_num[MAX_TENANT_NUM];
+    bool     msg_sensitive[MAX_TENANT_NUM];
+    bool     delay_sensitive[MAX_TENANT_NUM];
+    bool     resp_read[MAX_TENANT_NUM];
+    uint64_t avg_msg_size[MAX_TENANT_NUM];
+    bool     btenant_can_post[MAX_TENANT_NUM];
+
+    pthread_mutex_t perf_thread_lock[MAX_TENANT_NUM];
+    pthread_cond_t perf_thread_cond[MAX_TENANT_NUM];
+    pthread_mutex_t lock;
+};
+
+struct tenant_context {
+    struct rdma_context ctx;
+    struct rdma_cm_id* id;
+    struct rdma_cm_id* listen_id;
+    struct rdma_event_channel* ec;
+    struct rdma_cm_event* event;
+    struct ibv_qp_init_attr qp_attr;
+    struct pdata rep_pdata;  
+};
+
+struct tenant_context ctx[MAX_TENANT_NUM];
 
 
 static void setup_connection();
@@ -68,6 +100,46 @@ char *get(const char *key) {
 }
 
 int main() {
+    // 공유 메모리 생성 및 초기화
+    struct perf_shm_context* shm_ctx = NULL;
+    int shm_fd;
+
+    printf("Init perf_shm\n");
+    shm_fd = shm_open("/perf-shm", O_CREAT | O_RDWR, 0666);
+
+    if (shm_fd == -1)
+    {
+        printf("Open perf_shm is failed\n");
+        exit(1);
+    }
+
+    if (ftruncate(shm_fd, sizeof(struct perf_shm_context)) < 0)
+        printf("ftruncate error\n");
+
+    shm_ctx = (struct perf_shm_context*)mmap(0, sizeof(struct perf_shm_context), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+
+    if (shm_ctx == MAP_FAILED) {
+        printf("Error mapping shared memory perf_shm");
+        exit(1);
+    }
+
+    shm_ctx->next_tenant_id = 0;
+    shm_ctx->tenant_num = 0;
+    shm_ctx->active_tenant_num = 0;
+    shm_ctx->active_qps_num = 0;
+    shm_ctx->active_stenant_num = 0;
+    shm_ctx->active_mtenant_num = 0;
+    shm_ctx->active_dtenant_num = 0;
+
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutex_init(&(shm_ctx->lock), &attr);
+
+    pthread_condattr_t attrcond;
+    pthread_condattr_init(&attrcond);
+    pthread_condattr_setpshared(&attrcond, PTHREAD_PROCESS_SHARED);
+
     setup_connection();
     return EXIT_SUCCESS;
 }
@@ -125,7 +197,7 @@ static void setup_connection() {
         }
     }
 }
-
+// 이벤트 처리
 static int handle_event() {
 
     printf("Event type: %s\n", rdma_event_str(event->event));
@@ -144,6 +216,86 @@ static int handle_event() {
     }
 
     return 0;
+}
+
+void* create_thread(void* arg) {
+    struct rdma_cm_id* id = (struct rdma_cm_id*)arg;
+    struct rdma_context* client_ctx = NULL;
+
+    // 공유 메모리에서 새로운 tenant_context 할당
+    int tenant_id = shm_ctx->next_tenant_id;
+    if (tenant_id >= MAX_TENANT_NUM) {
+        fprintf(stderr, "Maximum number of tenants reached.\n");
+        rdma_disconnect(id);
+        return NULL;
+    }
+
+    // 연결 가능한지 확인 후 연결
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (ctx[i].qp == NULL) { 
+            client_ctx = &ctx[i];
+            break;
+        }
+    }
+    
+    if (!client_ctx) {
+        fprintf(stderr, "Max clients reached, rejecting connection.\n");
+        rdma_disconnect(id);  
+        return NULL;
+    }
+
+    // !! 여기가 qp 생성~~
+    build_context(client_ctx, id);
+    build_qp_attr(&qp_attr, client_ctx);
+
+    printf("Creating QP for client...\n");
+    if (rdma_create_qp(id, client_ctx->pd, &qp_attr)) {
+        perror("rdma_create_qp");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Queue Pair created for client: %p\n", (void*)id->qp);
+    pre_post_recv_buffer();
+
+    struct rdma_conn_param conn_param;
+    memset(&conn_param, 0, sizeof(conn_param));
+    conn_param.initiator_depth = 3;
+    conn_param.responder_resources = 3;
+    conn_param.retry_count = 3;
+    conn_param.private_data = &rep_pdata;
+    conn_param.private_data_len = sizeof(rep_pdata);
+
+    if (rdma_accept(id, &conn_param)) {
+        perror("rdma_accept");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connection accepted.\n\n");
+
+    // 클라이언트 정보 복사
+    memcpy(&client_ctx->rep_pdata, client_ctx->event->param.conn.private_data, sizeof(client_ctx->rep_pdata));
+    printf("Received client Memory at address %p with RKey %u\n", (void*)client_ctx->rep_pdata.buf_va, ntohl(client_ctx->rep_pdata.buf_rkey));
+
+    // 고유한 tenant_id 할당
+    shm_ctx->next_tenant_id = (tenant_id + 1) % MAX_TENANT_NUM;  
+
+
+    return NULL;
+}
+
+static void on_connect(struct rdma_cm_event* event) {
+    struct rdma_cm_id* id = event->id;
+
+    // 멀티 스레드 생성
+    pthread_t thread;
+    int ret = pthread_create(&thread, NULL, create_thread, (void*)id);
+    if (ret != 0) {
+        perror("pthread_create");
+        exit(EXIT_FAILURE);
+    }
+
+    // 비동기처리
+    pthread_detach(thread);
 }
 
 static void on_connect() {
