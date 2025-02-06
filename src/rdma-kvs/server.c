@@ -25,11 +25,7 @@ struct perf_shm_context {
 
     uint32_t active_qps_per_tenant[MAX_TENANT_NUM];
     uint32_t additional_qps_num[MAX_TENANT_NUM];
-    bool     msg_sensitive[MAX_TENANT_NUM];
-    bool     delay_sensitive[MAX_TENANT_NUM];
-    bool     resp_read[MAX_TENANT_NUM];
     uint64_t avg_msg_size[MAX_TENANT_NUM];
-    bool     btenant_can_post[MAX_TENANT_NUM];
 
     pthread_mutex_t perf_thread_lock[MAX_TENANT_NUM];
     pthread_cond_t perf_thread_cond[MAX_TENANT_NUM];
